@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func serviceSpec(t *testing.T, body string) *Spec {
@@ -62,6 +64,67 @@ func TestServiceDocumentCarriesNoCredential(t *testing.T) {
 	}
 	if !strings.Contains(doc, "/var/lib/onebox/app/services/store.secret.env") {
 		t.Fatalf("no reference to the target-side credential:\n%s", doc)
+	}
+}
+
+func TestPostgresSharedMemory(t *testing.T) {
+	for _, tt := range []struct {
+		name, version, resources, wantMemLimit string
+		want                                   int64
+	}{
+		{"default", "18", "", "", 1 << 30},
+		{"official image", "17", "", "", 1 << 30},
+		{"empty resources", "18", ", resources: {}", "", 1 << 30},
+		{"CPU limit only", "18", ", resources: {cpus: '0.5'}", "", 1 << 30},
+		{"byte limit", "18", ", resources: {memory: 1B}", "1B", 0},
+		{"128 MiB limit", "18", ", resources: {memory: 128MB}", "128MB", 64 << 20},
+		{"256 MiB limit", "18", ", resources: {memory: 256MB}", "256MB", 128 << 20},
+		{"small limit", "18", ", resources: {memory: 512MB}", "512MB", 256 << 20},
+		{"zero limit", "18", ", resources: {memory: 0B}", "0B", 1 << 30},
+		{"floor boundary", "18", ", resources: {memory: 1GB}", "1GB", 256 << 20},
+		{"mid limit", "18", ", resources: {memory: 2GB}", "2GB", 512 << 20},
+		{"decimal limit", "18", ", resources: {memory: 1.5GB}", "1.5GB", 384 << 20},
+		{"cap boundary", "18", ", resources: {memory: 4GB}", "4GB", 1 << 30},
+		{"large limit", "18", ", resources: {memory: 8GB}", "8GB", 1 << 30},
+		// The size grammar accepts this, but it overflows Compose's integer limit.
+		// Rendering must preserve mem_limit for the existing validation path.
+		{"overflowing limit", "18", ", resources: {memory: 999999999999999999999999TB}", "999999999999999999999999TB", 1 << 30},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := renderStore(t, "services: {store: {driver: postgres, version: "+tt.version+tt.resources+"}}\n")
+			var runtime struct {
+				Services map[string]struct {
+					ShmSize  int64  `yaml:"shm_size"`
+					MemLimit string `yaml:"mem_limit"`
+				} `yaml:"services"`
+			}
+			if err := yaml.Unmarshal([]byte(doc), &runtime); err != nil {
+				t.Fatal(err)
+			}
+			service := runtime.Services["store"]
+			if service.ShmSize != tt.want {
+				t.Fatalf("shm_size = %d, want %d:\n%s", service.ShmSize, tt.want, doc)
+			}
+			if service.MemLimit != tt.wantMemLimit {
+				t.Fatalf("mem_limit = %q, want %q", service.MemLimit, tt.wantMemLimit)
+			}
+		})
+	}
+}
+
+func TestOtherServicesHaveNoSharedMemoryOverride(t *testing.T) {
+	for _, driver := range DriverNames() {
+		if driver == "postgres" {
+			continue
+		}
+		t.Run(driver, func(t *testing.T) {
+			for _, resources := range []string{"", ", resources: {memory: 2GB}"} {
+				doc := renderStore(t, "services: {store: {driver: "+driver+", version: '1'"+resources+"}}\n")
+				if strings.Contains(doc, "shm_size") {
+					t.Fatalf("%s has a shared-memory override:\n%s", driver, doc)
+				}
+			}
+		})
 	}
 }
 

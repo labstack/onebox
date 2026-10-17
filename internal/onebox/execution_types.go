@@ -57,6 +57,7 @@ type DeployPlan struct {
 	Artifact        engine.Artifact             `json:"artifact"`
 	Diff            string                      `json:"diff,omitempty"`
 	NoOp            bool                        `json:"no_op"`
+	ProxyAction     string                      `json:"proxy_action,omitempty"`
 	MigrationBackup *MigrationBackupRequirement `json:"migration_backup,omitempty"`
 	PlanDigest      string                      `json:"plan_digest"`
 }

@@ -128,3 +128,62 @@ func TestStageProxy(t *testing.T) {
 		t.Fatalf("identity = %+v, want %+v", got, want)
 	}
 }
+
+func TestPlanProxyReportsEachAction(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		want string
+	}{
+		{"unchanged", "unchanged"},
+		{"compose drift", "update changed containers only, no restart"},
+		{"config drift", "restart Traefik (configuration changed)"},
+		{"unmanaged", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &transport.Fake{}
+			e, applied, _ := proxyFixture(t, f)
+			switch tt.name {
+			case "compose drift":
+				applied.Compose = "sha256:" + strings.Repeat("c", 64)
+			case "config drift":
+				applied.Config = "sha256:" + strings.Repeat("c", 64)
+			case "unmanaged":
+				e.Spec.Proxy.Managed = false
+			}
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				switch {
+				case strings.HasPrefix(cmd, "cat "):
+					return transport.Result{Stdout: applied.String() + "\n"}, true
+				case strings.Contains(cmd, "service=proxy"):
+					return transport.Result{Stdout: "PX1\n"}, true
+				case strings.Contains(cmd, "service=discovery"):
+					return transport.Result{Stdout: "D1\n"}, true
+				case strings.Contains(cmd, "stat -c %i"):
+					return transport.Result{Stdout: "12\n"}, true
+				}
+				return transport.Result{}, false
+			}
+			got, err := e.PlanProxy(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("PlanProxy = %q, want %q", got, tt.want)
+			}
+			for _, cmd := range f.Commands {
+				for _, mutation := range []string{"rm ", "mv ", "mkdir", "up -d", "docker restart", "> "} {
+					if strings.Contains(cmd, mutation) {
+						t.Fatalf("plan mutated host: %s", cmd)
+					}
+				}
+			}
+			wantCommands := 4
+			if tt.name == "unmanaged" {
+				wantCommands = 0
+			}
+			if len(f.Commands) != wantCommands || len(f.Uploads) != 0 {
+				t.Fatalf("commands = %v; uploads = %v", f.Commands, f.Uploads)
+			}
+		})
+	}
+}

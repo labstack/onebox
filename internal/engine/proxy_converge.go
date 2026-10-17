@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -90,4 +91,24 @@ func (e *Engine) observeProxy(ctx context.Context) (proxyObservation, error) {
 
 func outputInodeCommand(path string) string {
 	return "if [ -s " + q(path) + " ]; then stat -c %i " + q(path) + "; fi"
+}
+
+func (e *Engine) PlanProxy(ctx context.Context) (string, error) {
+	if !e.Spec.Proxy.Managed {
+		return "", nil
+	}
+	staging, err := os.MkdirTemp("", "onebox-proxy")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(staging)
+	staged, err := e.stageProxy(staging)
+	if err != nil {
+		return "", err
+	}
+	observed, err := e.observeProxy(ctx)
+	if err != nil {
+		return "", err
+	}
+	return decideProxy(observed, staged).String(), nil
 }

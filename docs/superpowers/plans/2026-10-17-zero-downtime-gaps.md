@@ -548,8 +548,14 @@ func TestPlanProxySaysStartWhenTraefikMissing(t *testing.T)
 - [ ] **Tests:**
 
 ```go
-func TestRecoverySingleReplicaKeepsInterruptedNewcomerServing(t *testing.T) // NEW1 holds the transient name, OLD1 drained: NEW1 renamed to the free slot, never removed before the predecessor surge; drain file removed from OLD1 before restore
+func TestRecoverySingleReplicaKeepsInterruptedNewcomerServing(t *testing.T)
+// replicas: 1. NEW1 (interrupted release) holds the transient name and is healthy; OLD1 (predecessor) is running and drained.
+// want, in order: NEW1 renamed to the free slot (never `docker rm -f NEW1` before OLD1 is admitted);
+// `docker exec OLD1 rm -f /tmp/onebox-drain`; OLD1 adopted and admitted (healthy, and published when the proxy is managed);
+// only then NEW1 drained, stopped and removed. No surge: the predecessor's own replica is adopted.
 ```
+
+Corrected during implementation: the predecessor's running replica is adopted, not replaced, so the roll does not surge.
 
 Fix `TestRecoveryRollsPredecessorBeforeRemovingServingContainer` to use the fake's own `OLD1` listing and assert touch → stop → rm of `OLD1` with `NEW1` surviving.
 

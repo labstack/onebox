@@ -162,7 +162,13 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 
 		if len(news) >= desired && len(olds) == 0 {
 			if len(news) == desired {
+				if err := e.admitNewcomers(ctx, roleName, role, news, within, pollEvery); err != nil {
+					return err
+				}
 				break
+			}
+			if err := e.admitNewcomers(ctx, roleName, role, news[:desired], within, pollEvery); err != nil {
+				return err
 			}
 			// surplus new replicas (count reduced) — drain one down to desired
 			update(completed, "retiring surplus replica")
@@ -234,10 +240,21 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 				cleanupErr := e.mutateChecked(ctx, "remove unhealthy newcomer "+newID, "docker rm -f "+newID)
 				return errors.Join(fmt.Errorf("role %s: new container never became healthy: %w", roleName, err), cleanupErr)
 			}
+			if e.routeGated(role) {
+				if err := e.awaitRouting(ctx, roleName, role, newID, true, pollEvery); err != nil {
+					e.logf("join failed for %s — removing new container, existing keep serving", roleName)
+					cleanupErr := e.mutateChecked(ctx, "remove unrouted newcomer "+newID, "docker rm -f "+newID)
+					return errors.Join(fmt.Errorf("role %s: %w", roleName, err), cleanupErr)
+				}
+			}
+			news = append(news, newID)
 		}
 
 		// retire one old, freeing its slot for the newcomer just added
 		if len(olds) > 0 {
+			if err := e.admitNewcomers(ctx, roleName, role, news, within, pollEvery); err != nil {
+				return err
+			}
 			update(completed, "retiring old replica")
 			if err := e.retireContainer(ctx, role, olds[0], pollEvery); err != nil {
 				return err
@@ -254,6 +271,21 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 		return err
 	}
 	update(desired, "replicas converged")
+	return nil
+}
+
+// admitNewcomers checks replacements without removing adopted containers on failure.
+func (e *Engine) admitNewcomers(ctx context.Context, workload string, role app.Workload, ids []string, within, pollEvery time.Duration) error {
+	for _, id := range ids {
+		if err := e.waitHealth(ctx, id, "healthy", within, pollEvery); err != nil {
+			return err
+		}
+		if e.routeGated(role) {
+			if err := e.awaitRouting(ctx, workload, role, id, true, pollEvery); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

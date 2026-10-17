@@ -430,3 +430,111 @@ func TestRollRoleReportsNewcomerThatExited(t *testing.T) {
 		t.Fatalf("the old replica must keep serving:\n%s", strings.Join(f.Commands, "\n"))
 	}
 }
+
+// routedRollFake publishes each endpoint from its requested document read onward.
+func routedRollFake(base *transport.Fake, publishFrom map[string]int) *transport.Fake {
+	previous := base.Dynamic
+	reads := 0
+	base.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, ".NetworkSettings.Networks") {
+			fields := strings.Fields(cmd)
+			id := strings.Trim(fields[len(fields)-1], "'")
+			return transport.Result{Stdout: "10.0.0." + strings.TrimPrefix(id, "NEW") + " "}, true
+		}
+		if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "onebox.yml") {
+			reads++
+			body := "http:\n  services:\n    onebox_web:\n      loadBalancer:\n        servers:"
+			servers := ""
+			for id, from := range publishFrom {
+				if from > 0 && reads >= from {
+					servers += "\n          - url: http://10.0.0." + strings.TrimPrefix(id, "NEW") + ":3000"
+				}
+			}
+			if servers == "" {
+				servers = " []"
+			}
+			return transport.Result{Stdout: body + servers + "\n"}, true
+		}
+		return previous(cmd)
+	}
+	return base
+}
+
+func routedRollConfig() *app.Resolved {
+	cfg := testConfig()
+	cfg.Proxy.Managed = true
+	role := cfg.Workloads["web"]
+	role.Routes = []app.Route{{Port: 3000}}
+	cfg.Workloads["web"] = role
+	return cfg
+}
+
+func TestRollRetiresOldOnlyAfterNewcomerPublished(t *testing.T) {
+	f := routedRollFake(rollFake(), map[string]int{"NEW1": 3})
+	clock := &virtualClock{}
+	e := New(routedRollConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	for _, cmd := range f.Commands {
+		if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "onebox.yml") {
+			reads++
+		}
+		if strings.HasPrefix(cmd, "docker exec OLD1") && reads < 3 {
+			t.Fatalf("retired after only %d route reads", reads)
+		}
+	}
+	if reads < 3 {
+		t.Fatalf("only %d route reads", reads)
+	}
+}
+
+func TestRollRemovesNewcomerNeverPublished(t *testing.T) {
+	f := routedRollFake(rollFake(), map[string]int{"NEW1": 0})
+	clock := &virtualClock{}
+	e := New(routedRollConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml")
+	if err == nil || !strings.Contains(err.Error(), "did not publish") {
+		t.Fatalf("error = %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "docker rm -f NEW1") || strings.Contains(seq, "docker exec OLD1") {
+		t.Fatal(seq)
+	}
+}
+
+func TestRollResumeAdmitsAdoptedNewcomerBeforeRetiring(t *testing.T) {
+	f := replicaFake(1, []string{"OLD1"}, map[string]string{"OLD1": "web"}, true)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "State.Health") && strings.Contains(cmd, "NEW1") {
+			return transport.Result{Stdout: "starting\n"}, true
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	cfg.Workloads["web"] = withinMillis(cfg.Workloads["web"], 50)
+	clock := &virtualClock{}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err == nil {
+		t.Fatal("expected admission failure")
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "docker exec OLD1") || strings.Contains(seq, "docker rm -f NEW1") {
+		t.Fatal(seq)
+	}
+}
+
+func TestRollUnmanagedProxyReadsNoRoutes(t *testing.T) {
+	f := rollFake()
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "onebox.yml") {
+			t.Fatal(cmd)
+		}
+	}
+}

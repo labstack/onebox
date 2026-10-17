@@ -170,7 +170,7 @@ func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest
 		return &RecoveryIncompleteError{Phase: "cleanup", Err: err}
 	}
 	if previous != nil {
-		if err := e.restoreReleaseRoles(ctx, previous, request.PreviousID); err != nil {
+		if err := e.restoreReleaseRoles(ctx, previous, request.PreviousID, request.InterruptedID); err != nil {
 			return &RecoveryIncompleteError{Phase: "restore", Err: err}
 		}
 	}
@@ -269,7 +269,7 @@ func (e *Engine) assertNoReleaseContainers(ctx context.Context, releaseID string
 	return nil
 }
 
-func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, previousID string) error {
+func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, previousID, interruptedID string) error {
 	composePath := release.PathsFor(e.names()).Releases + "/" + previousID + "/compose.yaml"
 	revisions, err := previous.releaseWorkloadRevisions(ctx, composePath)
 	if err != nil {
@@ -281,7 +281,14 @@ func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, prev
 	}
 	for _, roleName := range previous.Spec.ReleaseOrder() {
 		role := previous.Spec.Workloads[roleName]
-		if retainableWorkload(observed[roleName], revisions[roleName], role.Count()) {
+		interruptedOwned := false
+		for _, container := range observed[roleName] {
+			if container.release == interruptedID {
+				interruptedOwned = true
+				break
+			}
+		}
+		if !interruptedOwned && retainableWorkload(observed[roleName], revisions[roleName], role.Count()) {
 			previous.logf("restore %s: already at target workload revision", roleName)
 			continue
 		}

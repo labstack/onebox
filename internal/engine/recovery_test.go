@@ -345,7 +345,7 @@ func TestRestoreReleaseRolesRetainsMatchingTargetRevisions(t *testing.T) {
 		return base(command)
 	}
 	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	if err := engine.restoreReleaseRoles(context.Background(), engine, engineTestPreviousReleaseID); err != nil {
+	if err := engine.restoreReleaseRoles(context.Background(), engine, engineTestPreviousReleaseID, engineTestDeployReleaseID); err != nil {
 		t.Fatal(err)
 	}
 	for _, command := range target.Commands {
@@ -494,5 +494,85 @@ func TestRecoveryNonServingRejectsInvalidListingBeforeRemoval(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRecoveryFakePreservesInterruptedOwnershipUntilRemoval(t *testing.T) {
+	for _, removal := range []string{"docker rm OLD1", "if docker inspect OLD1 >/dev/null 2>&1; then docker rm -f OLD1; fi"} {
+		t.Run(removal, func(t *testing.T) {
+			target := happyFake()
+			engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			ctx := context.Background()
+			listing := "docker ps -a --filter label=onebox.app=" + q(engine.Spec.Name) +
+				" --filter label=onebox.release=" + q(engineTestDeployReleaseID) +
+				" --format " + q(`{{.ID}}|{{.Label "com.docker.compose.service"}}|{{.Names}}|{{.State}}`)
+			if _, err := target.Run(ctx, listing); err != nil {
+				t.Fatal(err)
+			}
+			// Simulate predecessor creation without retiring the interrupted replica.
+			if _, err := target.Run(ctx, "docker compose up -d --scale web=2"); err != nil {
+				t.Fatal(err)
+			}
+			ids, err := engine.exactReleaseContainerIDs(ctx, engineTestDeployReleaseID)
+			if err != nil || strings.Join(ids, ",") != "OLD1" {
+				t.Fatalf("surviving interrupted ids = %v, %v", ids, err)
+			}
+			if err := engine.assertNoReleaseContainers(ctx, engineTestDeployReleaseID); err == nil {
+				t.Fatal("postcondition accepted surviving interrupted replica")
+			}
+			ids, err = engine.newcomerIDs(ctx, "web", engineTestPreviousReleaseID, "")
+			if err != nil || strings.Join(ids, ",") != "NEW1" {
+				t.Fatalf("predecessor ids = %v, %v", ids, err)
+			}
+			if _, err := target.Run(ctx, removal); err != nil {
+				t.Fatal(err)
+			}
+			if err := engine.assertNoReleaseContainers(ctx, engineTestDeployReleaseID); err != nil {
+				t.Fatal(err)
+			}
+			result, err := target.Run(ctx, listing)
+			if err != nil || strings.TrimSpace(result.Stdout) != "" {
+				t.Fatalf("removed interrupted replica reappeared: %+v, %v", result, err)
+			}
+			ids, err = engine.newcomerIDs(ctx, "web", engineTestPreviousReleaseID, "")
+			if err != nil || strings.Join(ids, ",") != "NEW1" {
+				t.Fatalf("removal changed predecessor ids = %v, %v", ids, err)
+			}
+		})
+	}
+}
+
+func TestRestoreReleaseRolesRollsInterruptedOwnedMatchingRevision(t *testing.T) {
+	target := happyFake()
+	revision := "sha256:" + strings.Repeat("a", 64)
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "/compose.yaml") && strings.HasPrefix(command, "cat "):
+			return transport.Result{Stdout: "services:\n  web:\n    labels:\n      onebox.workload-revision: " + revision + "\n"}, true
+		case strings.Contains(command, "docker ps --filter label=onebox.app="):
+			return transport.Result{Stdout: "OLD1|web|" + engineTestDeployReleaseID + "|" + revision + "|Up 1 hour (healthy)\n"}, true
+		}
+		return base(command)
+	}
+	cfg := testConfig()
+	for name := range cfg.Workloads {
+		if name != "web" {
+			delete(cfg.Workloads, name)
+		}
+	}
+	cfg.Deployment.Order = []string{"web"}
+	engine := New(cfg, testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := engine.restoreReleaseRoles(context.Background(), engine, engineTestPreviousReleaseID, engineTestDeployReleaseID); err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Join(target.Commands, "\n")
+	last := -1
+	for _, marker := range []string{"--scale web=", "docker exec OLD1 touch", "docker stop -t 30 OLD1", "docker rm OLD1"} {
+		at := strings.Index(commands, marker)
+		if at < 0 || at <= last {
+			t.Fatalf("missing or out-of-order %q:\n%s", marker, commands)
+		}
+		last = at
 	}
 }

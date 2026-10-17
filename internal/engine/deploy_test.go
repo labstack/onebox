@@ -71,10 +71,14 @@ func happyFake() *transport.Fake {
 		scaleCount, recreateCount := 0, 0
 		initialScaleCount, initialRecreateCount := 0, 0
 		seenExactReleaseQuery := false
+		recoveryRelease := ""
+		interruptedOldGone := false
 		newGone, workerGone := false, false
 		name := map[string]string{"OLD1": "web"}
 		for _, c := range f.Commands {
-			if strings.Contains(c, "docker ps -a --filter label=onebox.app=") && strings.Contains(c, "label=onebox.release=") {
+			if recoveryRelease == "" && strings.Contains(c, "docker ps -a --filter label=onebox.app=") && strings.Contains(c, "label=onebox.release=") {
+				_, releaseFilter, _ := strings.Cut(c, "label=onebox.release=")
+				recoveryRelease = strings.Fields(releaseFilter)[0]
 				// Recovery rolls the predecessor into NEW1/W1; the interrupted
 				// web replica becomes OLD1 in this fixture's next roll.
 				scaled, oldGone, drained = false, false, false
@@ -100,8 +104,11 @@ func happyFake() *transport.Fake {
 					initialRecreateCount++
 				}
 			}
-			if strings.Contains(c, "docker rm OLD1") {
+			if strings.Contains(c, "docker rm OLD1") || strings.Contains(c, "docker rm -f OLD1") {
 				oldGone = true
+				if recoveryRelease != "" {
+					interruptedOldGone = true
+				}
 			}
 			if strings.Contains(c, "docker rm -f NEW1") {
 				newGone = true
@@ -125,7 +132,10 @@ func happyFake() *transport.Fake {
 		}
 		switch {
 		case strings.Contains(cmd, "docker ps -a --filter label=onebox.app=") && strings.Contains(cmd, "label=onebox.release="):
-			return transport.Result{Stdout: "OLD1|web|sample-web-1|running"}, true
+			if !interruptedOldGone {
+				return transport.Result{Stdout: "OLD1|web|sample-web-1|running"}, true
+			}
+			return transport.Result{}, true
 		// Compose counts stopped replicas toward --scale, so the roll asks for
 		// them separately; these fakes model none.
 		case strings.Contains(cmd, "status=exited"):
@@ -192,6 +202,12 @@ func happyFake() *transport.Fake {
 			}
 			return transport.Result{}, true
 		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=onebox.app=") && strings.Contains(cmd, "label=onebox.release="):
+			if recoveryRelease != "" && strings.Contains(cmd, "label=onebox.release="+recoveryRelease) {
+				if !interruptedOldGone {
+					return transport.Result{Stdout: "OLD1\n"}, true
+				}
+				return transport.Result{}, true
+			}
 			var ids []string
 			if initialScaleCount > 0 && !newGone {
 				ids = append(ids, "NEW1")

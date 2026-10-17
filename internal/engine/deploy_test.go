@@ -74,6 +74,16 @@ func happyFake() *transport.Fake {
 		newGone, workerGone := false, false
 		name := map[string]string{"OLD1": "web"}
 		for _, c := range f.Commands {
+			if strings.Contains(c, "docker ps -a --filter label=onebox.app=") && strings.Contains(c, "label=onebox.release=") {
+				// Recovery rolls the predecessor into NEW1/W1; the interrupted
+				// web replica becomes OLD1 in this fixture's next roll.
+				scaled, oldGone, drained = false, false, false
+				scaleCount, recreateCount = 0, 0
+				initialScaleCount, initialRecreateCount = 0, 0
+				newGone, workerGone = false, true
+				name = map[string]string{"OLD1": "web"}
+				seenExactReleaseQuery = true
+			}
 			if strings.Contains(c, "docker ps -aq") && strings.Contains(c, "label=onebox.app=") && strings.Contains(c, "label=onebox.release=") {
 				seenExactReleaseQuery = true
 			}
@@ -114,6 +124,8 @@ func happyFake() *transport.Fake {
 			return fs[len(fs)-1]
 		}
 		switch {
+		case strings.Contains(cmd, "docker ps -a --filter label=onebox.app=") && strings.Contains(cmd, "label=onebox.release="):
+			return transport.Result{Stdout: "OLD1|web|sample-web-1|running"}, true
 		// Compose counts stopped replicas toward --scale, so the roll asks for
 		// them separately; these fakes model none.
 		case strings.Contains(cmd, "status=exited"):

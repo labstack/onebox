@@ -57,6 +57,8 @@ func TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles(t *testing.
 		switch {
 		case strings.Contains(command, "readlink"):
 			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		case strings.Contains(command, "docker ps -a --filter label=onebox.app="):
+			return transport.Result{Stdout: "NEW1|web|demo-web-1|running\nSTALE1|stale|demo-stale-1|running"}, true
 		case strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=onebox.release='"+engineTestDeployReleaseID+"'"):
 			var ids []string
 			for _, pair := range []struct{ id, marker string }{{"NEW1", "docker rm -f NEW1"}, {"STALE1", "docker rm -f STALE1"}} {
@@ -99,6 +101,11 @@ func TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles(t *testing.
 	var incomplete *RecoveryIncompleteError
 	if !errors.As(err, &incomplete) || incomplete.Code() != "recovery_incomplete" || incomplete.Phase != "verify" {
 		t.Fatalf("first recovery error = %#v", err)
+	}
+	commands := strings.Join(target.Commands, "\n")
+	if strings.Index(commands, "docker rm -f STALE1") > strings.Index(commands, "--scale web=") ||
+		strings.Index(commands, "docker rm -f NEW1") < strings.Index(commands, "--scale web=") {
+		t.Fatalf("recovery cleanup order:\n%s", commands)
 	}
 	if strings.Count(output.String(), "✓ web rolling") != 1 {
 		t.Fatalf("restored workload must leave one completed step before verification: %s", output.String())
@@ -345,5 +352,147 @@ func TestRestoreReleaseRolesRetainsMatchingTargetRevisions(t *testing.T) {
 		if strings.Contains(command, " up -d ") || strings.Contains(command, "docker pull") || strings.Contains(command, "docker kill") || strings.Contains(command, "docker stop") {
 			t.Fatalf("matching rollback target mutated a retained workload: %s", command)
 		}
+	}
+}
+
+func TestRecoveryRollsPredecessorBeforeRemovingServingContainer(t *testing.T) {
+	target := happyFake()
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		case strings.Contains(command, "docker ps -a --filter label=onebox.app="):
+			return transport.Result{Stdout: "NEW1|web|demo-web-1|running"}, true
+		case strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=onebox.release='"+engineTestDeployReleaseID+"'"):
+			if !strings.Contains(strings.Join(target.Commands, "\n"), "docker rm -f NEW1") {
+				return transport.Result{Stdout: "NEW1"}, true
+			}
+			return transport.Result{}, true
+		}
+		return base(command)
+	}
+	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	seedInterruptedRecoveryState(t, engine)
+	err := engine.recoverInterrupted(context.Background(), recoveryRequest{
+		InterruptedID: engineTestDeployReleaseID, PreviousID: engineTestPreviousReleaseID,
+		TerminalState: release.StateAborted, GateCovered: true, Phase: "abort", Journal: recoveryWriter(engine),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Join(target.Commands, "\n")
+	restore := strings.Index(commands, "--scale web=")
+	if restore < 0 {
+		t.Fatalf("no predecessor roll:\n%s", commands)
+	}
+	for _, command := range target.Commands {
+		if strings.Contains(command, "NEW1") && (strings.Contains(command, "docker stop") || strings.Contains(command, "docker rm")) {
+			if strings.Index(commands, command) < restore {
+				t.Fatalf("serving container removed before restore: %s", command)
+			}
+		}
+	}
+}
+
+func TestRecoveryWithoutPredecessorRemovesEverythingFirst(t *testing.T) {
+	target := happyFake()
+	base := target.Dynamic
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "docker ps -a --filter label=onebox.app=") {
+			return transport.Result{Stdout: "NEW1|web|demo-web-1|running\nSTALE1|stale|demo-stale-1|exited"}, true
+		}
+		if strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=onebox.release='"+engineTestDeployReleaseID+"'") {
+			return transport.Result{}, true
+		}
+		return base(command)
+	}
+	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	seedInterruptedRecoveryState(t, engine)
+	// This is a first-release recovery, so its checkpoint has no predecessor.
+	checkpoint, err := release.NewActivationCheckpoint(engineTestDeployReleaseID, "", release.ActivationPrepared, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.writeActivationCheckpoint(context.Background(), checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.recoverInterrupted(context.Background(), recoveryRequest{
+		InterruptedID: engineTestDeployReleaseID, TerminalState: release.StateAborted,
+		GateCovered: true, Phase: "abort", Journal: recoveryWriter(engine),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	commands := strings.Join(target.Commands, "\n")
+	for _, id := range []string{"NEW1", "STALE1"} {
+		removed := strings.Index(commands, "docker rm -f "+id)
+		if removed < 0 || removed > strings.Index(commands, "readlink") {
+			t.Fatalf("container %s not removed before finalization:\n%s", id, commands)
+		}
+	}
+}
+
+func TestRecoveryNonServingSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name, service, state        string
+		transient, noPrevious, keep bool
+	}{
+		{name: "running rolling", service: "web", state: "running", keep: true},
+		{name: "stopped rolling", service: "web", state: "exited"},
+		{name: "paused rolling", service: "web", state: "paused"},
+		{name: "restarting rolling", service: "web", state: "restarting"},
+		{name: "recreate", service: "worker", state: "running"},
+		{name: "missing workload", service: "stale", state: "running"},
+		{name: "unlabelled", state: "running"},
+		{name: "transient", service: "web", state: "running", transient: true},
+		{name: "first release", service: "web", state: "running", noPrevious: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := &transport.Fake{}
+			engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			name := "sample-web-1"
+			if tc.transient {
+				name = engine.names().TransientContainer(tc.service)
+			}
+			target.Dynamic = func(command string) (transport.Result, bool) {
+				if strings.Contains(command, "docker ps -a ") {
+					return transport.Result{Stdout: "NEW1|" + tc.service + "|" + name + "|" + tc.state}, true
+				}
+				return transport.Result{}, false
+			}
+			previous := engine
+			if tc.noPrevious {
+				previous = nil
+			}
+			if err := engine.removeInterruptedNonServing(context.Background(), engineTestDeployReleaseID, previous); err != nil {
+				t.Fatal(err)
+			}
+			removed := strings.Contains(strings.Join(target.Commands, "\n"), "docker rm -f NEW1")
+			if removed == tc.keep {
+				t.Fatalf("removed = %v, want keep = %v", removed, tc.keep)
+			}
+		})
+	}
+}
+
+func TestRecoveryNonServingRejectsInvalidListingBeforeRemoval(t *testing.T) {
+	for _, listing := range []string{"NEW1|stale|name|exited\nBAD;id|web|name|running", "NEW1|stale|name|exited\n|web|name|running", "NEW1|stale|name|exited\nbroken", "NEW1|stale|name|exited\n BAD1|web|name|running"} {
+		t.Run(listing, func(t *testing.T) {
+			target := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
+				if strings.Contains(command, "docker ps -a ") {
+					return transport.Result{Stdout: listing}, true
+				}
+				return transport.Result{}, false
+			}}
+			engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+			if err := engine.removeInterruptedNonServing(context.Background(), engineTestDeployReleaseID, engine); err == nil {
+				t.Fatal("invalid listing accepted")
+			}
+			for _, command := range target.Commands {
+				if strings.Contains(command, "docker rm") {
+					t.Fatalf("mutated before validating listing: %s", command)
+				}
+			}
+		})
 	}
 }

@@ -166,13 +166,18 @@ func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest
 		}
 	}()
 
-	if err := e.removeExactReleaseContainers(ctx, request.InterruptedID); err != nil {
+	if err := e.removeInterruptedNonServing(ctx, request.InterruptedID, previous); err != nil {
 		return &RecoveryIncompleteError{Phase: "cleanup", Err: err}
 	}
 	if previous != nil {
 		if err := e.restoreReleaseRoles(ctx, previous, request.PreviousID); err != nil {
 			return &RecoveryIncompleteError{Phase: "restore", Err: err}
 		}
+	}
+	if err := e.removeExactReleaseContainers(ctx, request.InterruptedID); err != nil {
+		return &RecoveryIncompleteError{Phase: "sweep", Err: err}
+	}
+	if previous != nil {
 		if err := previous.Verify(ctx); err != nil {
 			return &RecoveryIncompleteError{Phase: "verify", Err: err}
 		}
@@ -198,6 +203,45 @@ func (e *Engine) exactReleaseContainerIDs(ctx context.Context, releaseID string)
 		return nil, fmt.Errorf("list interrupted-release containers failed (exit %d): %s", result.ExitCode, strings.TrimSpace(result.Stderr))
 	}
 	return splitIDs(result.Stdout)
+}
+
+func (e *Engine) removeInterruptedNonServing(ctx context.Context, interruptedID string, previous *Engine) error {
+	result, err := e.T.Run(ctx, "docker ps -a --filter label=onebox.app="+q(e.Spec.Name)+
+		" --filter label=onebox.release="+q(interruptedID)+
+		" --format "+q(`{{.ID}}|{{.Label "com.docker.compose.service"}}|{{.Names}}|{{.State}}`))
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("list interrupted-release containers failed (exit %d): %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	var remove []string
+	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) != 4 {
+			return fmt.Errorf("invalid interrupted-release container record %q", line)
+		}
+		if !validID.MatchString(fields[0]) {
+			return fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", fields[0])
+		}
+		if previous != nil && fields[3] == "running" {
+			if role, ok := previous.Spec.Workloads[fields[1]]; ok && role.Mode() == "rolling" &&
+				fields[2] != e.names().TransientContainer(fields[1]) {
+				continue
+			}
+		}
+		remove = append(remove, fields[0])
+	}
+	for _, id := range remove {
+		command := "if docker inspect " + id + " >/dev/null 2>&1; then docker rm -f " + id + "; fi"
+		if err := e.mutateChecked(ctx, "remove interrupted container "+id, command); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) removeExactReleaseContainers(ctx context.Context, releaseID string) error {

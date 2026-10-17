@@ -118,7 +118,11 @@ func TestRouteAddressUsesProxyNetwork(t *testing.T) {
 		spec.Proxy.Network = "ingress"
 		e := New(spec, nil, f, Options{Out: io.Discard})
 		got, err := e.routeAddress(context.Background(), "container")
+		if err != nil || got != tc.want {
+			t.Fatalf("address = %q, %v; want %q", got, err, tc.want)
+		}
 		if tc.want == "" {
+			err = e.awaitRouting(context.Background(), "web", app.Workload{Routes: []app.Route{{Port: 3000}}}, "container", true, time.Second)
 			if err == nil || !strings.Contains(err.Error(), "ingress") {
 				t.Fatalf("missing network error: %v", err)
 			}

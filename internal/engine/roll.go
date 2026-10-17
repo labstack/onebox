@@ -329,7 +329,7 @@ func (e *Engine) retireContainer(ctx context.Context, workload string, role app.
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
 	}
-	if e.routeGated(role) {
+	if e.Spec.Proxy.Managed {
 		if err := e.awaitRouting(ctx, workload, role, id, false, pollEvery); err != nil {
 			return err
 		}

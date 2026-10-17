@@ -327,7 +327,17 @@ func TestDeployUpgradesManagedProxyAfterReadOnlyPreconditions(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	proxyRuntime := legacyProxyPS(f)
+	drained := false
 	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "docker exec OLD1 touch ") {
+			drained = true
+		}
+		if strings.HasPrefix(command, "cat ") && strings.Contains(command, "/dynamic/onebox.yml") {
+			if !drained {
+				return transport.Result{Stdout: "http:\n  services:\n    previous:\n      loadBalancer:\n        servers:\n          - url: http://172.20.0.5:3000\n"}, true
+			}
+			return transport.Result{Stdout: "{}\n"}, true
+		}
 		if result, ok := proxyRuntime(command); ok {
 			return result, true
 		}

@@ -40,6 +40,25 @@ func withdrawnFrom(doc discovery.Dynamic, n app.Names, workload string, role app
 	return true
 }
 
+// withdrawnFromAll checks every published service, including routes absent from the new role.
+func withdrawnFromAll(doc discovery.Dynamic, address string) bool {
+	if doc.HTTP != nil {
+		for service := range doc.HTTP.Services {
+			if routeContains(doc, service, "http", address) {
+				return false
+			}
+		}
+	}
+	if doc.TCP != nil {
+		for service := range doc.TCP.Services {
+			if routeContains(doc, service, "tcp", address) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func routeContains(doc discovery.Dynamic, service, protocol, address string) bool {
 	ip := net.ParseIP(address)
 	if ip == nil {
@@ -83,9 +102,6 @@ func (e *Engine) routeAddress(ctx context.Context, id string) (string, error) {
 	}
 	ipv4, ipv6, _ := strings.Cut(strings.TrimRight(result.Stdout, "\r\n"), " ")
 	address := discovery.EndpointAddress(ipv4, strings.TrimSpace(ipv6))
-	if address == "" {
-		return "", fmt.Errorf("container %s has no address on network %s", id, e.Spec.Proxy.Network)
-	}
 	return address, nil
 }
 
@@ -127,6 +143,12 @@ func (e *Engine) awaitRouting(ctx context.Context, workload string, role app.Wor
 	if err != nil {
 		return err
 	}
+	if address == "" {
+		if routed {
+			return fmt.Errorf("container %s has no address on network %s", id, e.Spec.Proxy.Network)
+		}
+		return nil
+	}
 	deadline := e.Opts.Now().Add(routePublishBudget)
 	var lastErr error
 	for {
@@ -136,7 +158,7 @@ func (e *Engine) awaitRouting(ctx context.Context, workload string, role app.Wor
 		doc, err := e.readPublishedRoutes(ctx)
 		if err != nil {
 			lastErr = err
-		} else if routed && routedIn(doc, e.names(), workload, role, address) || !routed && withdrawnFrom(doc, e.names(), workload, role, address) {
+		} else if routed && routedIn(doc, e.names(), workload, role, address) || !routed && withdrawnFromAll(doc, address) {
 			return nil
 		}
 		if !e.Opts.Now().Before(deadline) {

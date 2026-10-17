@@ -435,7 +435,11 @@ func TestRollRoleReportsNewcomerThatExited(t *testing.T) {
 func routedRollFake(base *transport.Fake, publishFrom map[string]int) *transport.Fake {
 	previous := base.Dynamic
 	reads := 0
+	drained := false
 	base.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.HasPrefix(cmd, "docker exec OLD1 touch ") {
+			drained = true
+		}
 		if strings.Contains(cmd, ".NetworkSettings.Networks") {
 			fields := strings.Fields(cmd)
 			id := strings.Trim(fields[len(fields)-1], "'")
@@ -448,6 +452,9 @@ func routedRollFake(base *transport.Fake, publishFrom map[string]int) *transport
 			reads++
 			body := "http:\n  services:\n    onebox_web:\n      loadBalancer:\n        servers:"
 			servers := ""
+			if !drained {
+				servers += "\n          - url: http://10.0.0.100:3000"
+			}
 			for id, from := range publishFrom {
 				if from > 0 && reads >= from {
 					servers += "\n          - url: http://10.0.0." + strings.TrimPrefix(id, "NEW") + ":3000"
@@ -616,5 +623,96 @@ func testRetireWithdrawal(t *testing.T, mode string) {
 		if mode == "unguarded" && (reads != 0 || clock.elapsed != 2*e.Opts.ConvergeBuffer) {
 			t.Fatalf("reads=%d elapsed=%s", reads, clock.elapsed)
 		}
+	}
+}
+
+func TestRetireOldReplicaOffProxyNetworkIsWithdrawn(t *testing.T) {
+	testRetireChangedRoutes(t, "off-network")
+}
+func TestRetireWaitsWhileOldReplicaServesARemovedRoute(t *testing.T) {
+	testRetireChangedRoutes(t, "removed")
+}
+func TestRetireWaitsWhileOldReplicaServesAnotherProtocol(t *testing.T) {
+	testRetireChangedRoutes(t, "tcp")
+}
+func testRetireChangedRoutes(t *testing.T, mode string) {
+	t.Helper()
+	f := rollFake()
+	previous := f.Dynamic
+	reads, stops := 0, 0
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, ".NetworkSettings.Networks") {
+			if mode == "off-network" {
+				return transport.Result{Stdout: " "}, true
+			}
+			return transport.Result{Stdout: "10.0.0.100 "}, true
+		}
+		if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "onebox.yml") {
+			reads++
+			if mode == "tcp" {
+				return transport.Result{Stdout: "tcp:\n  services:\n    removed:\n      loadBalancer:\n        servers:\n          - address: 10.0.0.100:5432\n"}, true
+			}
+			if reads <= 2 {
+				return transport.Result{Stdout: "http:\n  services:\n    onebox_web:\n      loadBalancer:\n        servers:\n          - url: http://10.0.0.100:3000\n"}, true
+			}
+			return transport.Result{Stdout: "{}"}, true
+		}
+		if strings.HasPrefix(cmd, "docker stop ") {
+			stops++
+			if mode == "off-network" && reads != 0 || mode == "removed" && reads != 3 {
+				t.Errorf("stop after %d reads in %s", reads, mode)
+			}
+		}
+		return previous(cmd)
+	}
+	cfg := routedRollConfig()
+	role := cfg.Workloads["web"]
+	if mode == "removed" {
+		role.Routes = nil
+	}
+	clock := &virtualClock{}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	err := e.retireContainer(context.Background(), "web", role, "OLD1", time.Second)
+	if mode == "tcp" {
+		if err == nil || !strings.Contains(err.Error(), "still routes") || stops != 0 || clock.elapsed < routePublishBudget {
+			t.Fatalf("err=%v stops=%d elapsed=%s", err, stops, clock.elapsed)
+		}
+	} else if err != nil || stops != 1 {
+		t.Fatalf("err=%v stops=%d", err, stops)
+	}
+}
+func TestRollResumeBlocksAdoptedHealthyUnpublishedNewcomer(t *testing.T) {
+	f := routedRollFake(replicaFake(1, []string{"OLD1"}, map[string]string{"OLD1": "web"}, true), map[string]int{"NEW1": 0})
+	clock := &virtualClock{}
+	e := New(routedRollConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml")
+	if err == nil || !strings.Contains(err.Error(), "did not publish") {
+		t.Fatalf("error=%v", err)
+	}
+	if strings.Contains(strings.Join(f.Commands, "\n"), "docker exec OLD1") {
+		t.Fatal("drained old before admission")
+	}
+}
+func TestRollWithdrawsOldReplicaInsideFullRoll(t *testing.T) {
+	f := routedRollFake(rollFake(), map[string]int{"NEW1": 1})
+	previous := f.Dynamic
+	withdrawnRead := false
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		result, ok := previous(cmd)
+		if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "onebox.yml") && !strings.Contains(result.Stdout, "10.0.0.100") {
+			withdrawnRead = true
+		}
+		if strings.HasPrefix(cmd, "docker stop ") && strings.Contains(cmd, "OLD1") && !withdrawnRead {
+			t.Error("stopped before a publication without OLD1")
+		}
+		return result, ok
+	}
+	clock := &virtualClock{}
+	e := New(routedRollConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if !withdrawnRead || !strings.Contains(strings.Join(f.Commands, "\n"), "docker stop -t 30 OLD1") {
+		t.Fatal("missing withdrawal or stop")
 	}
 }

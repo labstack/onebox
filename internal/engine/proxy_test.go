@@ -84,6 +84,9 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 		return false
 	}
 	return func(cmd string) (transport.Result, bool) {
+		if cmd == outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml") {
+			return transport.Result{Stdout: "12\n"}, true
+		}
 		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project='onebox-proxy'") {
 			if preRunning || upRan() {
 				return transport.Result{Stdout: "PX1\n"}, true
@@ -180,6 +183,9 @@ func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	e, hash, _ := proxyFixture(t, f)
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "rm -f '/var/lib/onebox/_host/proxy/config.hash'" && len(f.Uploads) != 0 {
+			t.Fatal("marker invalidated after upload")
+		}
 		if strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'") {
 			return transport.Result{Stdout: hash.String() + "\n"}, true
 		}
@@ -219,6 +225,10 @@ func TestEnsureProxyRepairsMissingDiscoveryController(t *testing.T) {
 	if !strings.Contains(strings.Join(f.Commands, "\n"), "up -d --force-recreate discovery") {
 		t.Fatalf("missing discovery controller was treated as an unchanged proxy:\n%s", strings.Join(f.Commands, "\n"))
 	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "docker restart") || strings.Contains(seq, "/config' '/var/lib/onebox/_host/proxy/config'") {
+		t.Fatalf("discovery repair must preserve Traefik and its config:\n%s", seq)
+	}
 }
 
 func TestEnsureProxyRepairsMissingDiscoveryOutput(t *testing.T) {
@@ -229,13 +239,13 @@ func TestEnsureProxyRepairsMissingDiscoveryOutput(t *testing.T) {
 		switch {
 		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'"):
 			return transport.Result{Stdout: hash.String() + "\n"}, true
-		case strings.Contains(cmd, "test -s '/var/lib/onebox/_host/proxy/dynamic/onebox.yml'"):
+		case cmd == outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml"):
 			for _, command := range f.Commands {
 				if strings.Contains(command, "up -d --force-recreate discovery") {
 					return transport.Result{}, true
 				}
 			}
-			return transport.Result{ExitCode: 1}, true
+			return transport.Result{}, true
 		}
 		return ps(cmd)
 	}
@@ -244,6 +254,10 @@ func TestEnsureProxyRepairsMissingDiscoveryOutput(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(f.Commands, "\n"), "up -d --force-recreate discovery") {
 		t.Fatalf("missing discovery output was treated as an unchanged proxy:\n%s", strings.Join(f.Commands, "\n"))
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if strings.Contains(seq, "docker restart") || strings.Contains(seq, "/config' '/var/lib/onebox/_host/proxy/config'") {
+		t.Fatalf("discovery repair must preserve Traefik and its config:\n%s", seq)
 	}
 }
 
@@ -254,6 +268,9 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	rendered := string(proxy.RenderComposeForApp("", proxy.DiscoveryImage("dev"), "sample", "", true, nil))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "rm -f '/var/lib/onebox/_host/proxy/config.hash'" && len(f.Uploads) != 0 {
+			t.Fatal("marker invalidated after upload")
+		}
 		if strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'") {
 			return transport.Result{Stdout: "deadbeef\n"}, true
 		}
@@ -273,6 +290,9 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	if iUp < 0 || iRestart < 0 || iRestart < iUp {
 		t.Fatalf("config-only change must up (no-op) then restart:\n%s", seq)
 	}
+	if strings.Index(seq, "rm -f '/var/lib/onebox/_host/proxy/config.hash'") < 0 {
+		t.Fatalf("marker must be invalidated before uploading:\n%s", seq)
+	}
 	if len(f.Uploads) != 1 {
 		t.Fatalf("changed config must upload: %v", f.Uploads)
 	}
@@ -286,8 +306,8 @@ func TestEnsureProxyConfigOnlyChangeRestarts(t *testing.T) {
 	// applied-state marker written ONLY after health confirms — an interrupted
 	// converge must be retried, never mistaken for "unchanged"
 	iHealth := strings.LastIndex(seq, "docker inspect")
-	iHash := strings.Index(seq, "> '/var/lib/onebox/_host/proxy/config.hash'")
-	if iHash < 0 || iHash < iHealth {
+	iHash := strings.Index(seq, "mv -f '/var/lib/onebox/_host/proxy/config.hash.tmp'")
+	if iHash < 0 || iHash < iHealth || !strings.Contains(seq, "printf '%s\\n'") {
 		t.Fatalf("config.hash must be written after the health check:\n%s", seq)
 	}
 }
@@ -298,6 +318,9 @@ func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
 	rendered := string(proxy.RenderComposeForApp("", proxy.DiscoveryImage("dev"), "sample", "", true, nil))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "rm -f '/var/lib/onebox/_host/proxy/config.hash'" && len(f.Uploads) != 0 {
+			t.Fatal("marker invalidated after upload")
+		}
 		if strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config.hash'") {
 			return transport.Result{Stdout: "deadbeef\n"}, true
 		}
@@ -313,7 +336,7 @@ func TestEnsureProxyFailedConvergeLeavesHashUnwritten(t *testing.T) {
 		t.Fatal("failed restart must error")
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if strings.Contains(seq, "> '/var/lib/onebox/_host/proxy/config.hash'") {
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/_host/proxy/config.hash'") || strings.Contains(seq, "config.hash.tmp") {
 		t.Fatalf("failed converge must NOT record the applied hash (retry depends on it):\n%s", seq)
 	}
 }
@@ -380,5 +403,110 @@ func TestHostJournalPrunesOldestFiles(t *testing.T) {
 	}
 	if out, err := exec.CommandContext(t.Context(), "sh", "-c", pruneHostJournalCommand(filepath.Join(dir, "absent"), 20)).CombinedOutput(); err != nil {
 		t.Fatalf("an absent journal is nothing to prune: %v\n%s", err, out)
+	}
+}
+
+func TestEnsureProxyComposeOnlyChangeSkipsSwapAndRestart(t *testing.T) {
+	f := &transport.Fake{}
+	e, id, _ := proxyFixture(t, f)
+	id.Compose = "sha256:" + strings.Repeat("0", 64)
+	ps := proxyPS(f, true)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'" {
+			return transport.Result{Stdout: id.String()}, true
+		}
+		if strings.Contains(cmd, "service=discovery") {
+			name := "D1"
+			if strings.Contains(strings.Join(f.Commands, "\n"), "up -d discovery") {
+				name = "D2"
+			}
+			return transport.Result{Stdout: name}, true
+		}
+		if cmd == outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml") {
+			return transport.Result{Stdout: "100"}, true
+		}
+		if strings.HasPrefix(cmd, "i=0;") {
+			if !strings.Contains(cmd, "100") || !strings.Contains(cmd, "stat -c %i") {
+				t.Fatalf("publication must require a fresh inode: %s", cmd)
+			}
+			return transport.Result{}, true // inode 101 was published
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "compose-change", false); err != nil {
+		t.Fatal(err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	for _, forbidden := range []string{"/config' '/var/lib/onebox/_host/proxy/config'", "docker restart", "--force-recreate"} {
+		if strings.Contains(seq, forbidden) {
+			t.Fatalf("unexpected %s:\n%s", forbidden, seq)
+		}
+	}
+	if !strings.Contains(seq, "/compose.yaml' '/var/lib/onebox/_host/proxy/compose.yaml'") || !strings.Contains(seq, "i=0;") {
+		t.Fatalf("compose and publication must converge:\n%s", seq)
+	}
+	iMarker := strings.Index(seq, "mv -f '/var/lib/onebox/_host/proxy/config.hash.tmp'")
+	if iMarker < 0 || iMarker < strings.LastIndex(seq, "docker inspect") {
+		t.Fatalf("marker precedes health:\n%s", seq)
+	}
+}
+
+func TestEnsureProxyMissingOutputForceRecreatesDiscoveryWithoutRestart(t *testing.T) {
+	TestEnsureProxyRepairsMissingDiscoveryOutput(t)
+}
+
+func TestEnsureProxyComposePathRejectsStaleOutput(t *testing.T) {
+	f := &transport.Fake{}
+	e, id, _ := proxyFixture(t, f)
+	id.Compose = "sha256:" + strings.Repeat("0", 64)
+	ps := proxyPS(f, true)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'" {
+			return transport.Result{Stdout: id.String()}, true
+		}
+		if strings.Contains(cmd, "service=discovery") {
+			name := "D1"
+			if strings.Contains(strings.Join(f.Commands, "\n"), "up -d discovery") {
+				name = "D2"
+			}
+			return transport.Result{Stdout: name}, true
+		}
+		if cmd == outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml") {
+			return transport.Result{Stdout: "100"}, true
+		}
+		if strings.HasPrefix(cmd, "i=0;") {
+			return transport.Result{ExitCode: 1}, true
+		}
+		return ps(cmd)
+	}
+	err := e.EnsureProxy(context.Background(), "stale", false)
+	if err == nil || !strings.Contains(err.Error(), "did not publish") || !strings.Contains(err.Error(), "docker logs onebox-discovery") {
+		t.Fatalf("stale output error: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "rm -f '/var/lib/onebox/_host/proxy/config.hash'") || strings.Contains(seq, "config.hash.tmp") {
+		t.Fatalf("failed converge must invalidate marker:\n%s", seq)
+	}
+}
+
+func TestEnsureProxyMissingMarkerTakesConfigPath(t *testing.T) {
+	for _, marker := range []string{"", "sha256:" + strings.Repeat("a", 64), "truncated marker"} {
+		t.Run(marker, func(t *testing.T) {
+			f := &transport.Fake{}
+			e, _, _ := proxyFixture(t, f)
+			ps := proxyPS(f, true)
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				if cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'" {
+					return transport.Result{Stdout: marker}, true
+				}
+				return ps(cmd)
+			}
+			if err := e.EnsureProxy(context.Background(), "unknown-marker", false); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(strings.Join(f.Commands, "\n"), "/config' '/var/lib/onebox/_host/proxy/config'") {
+				t.Fatal("unknown marker did not apply config")
+			}
+		})
 	}
 }

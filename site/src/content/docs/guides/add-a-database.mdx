@@ -23,14 +23,23 @@ That is sufficient as a declaration. Onebox supplies the image, a durable volume
 a health check, a credential generated on the server, and the connection details
 your application reads. You supply no password, no port, and no data path.
 
+PostgreSQL gets a 1 GiB `/dev/shm` ceiling for parallel queries; with a
+positive `resources.memory` limit, it gets one quarter of that limit, bounded
+between 256 MiB and 1 GiB, but never more than half the limit. A zero limit means
+unlimited. This tmpfs uses memory only as PostgreSQL writes to it, and those
+pages count against the container's memory limit.
+
 Declaring it does not start it. Services live outside the release lifecycle, so
-`ob deploy` wires up connections but never creates or replaces a service
-container — that would make every deploy a potential database restart. Apply the
-service explicitly:
+`ob deploy` wires up connections. For services with declared extensions, deploy
+also converges their configuration and recreates containers when it changes.
+Apply a service explicitly with:
 
 ```sh
 ob service apply --output ndjson
 ```
+
+A running PostgreSQL service keeps its current `/dev/shm` ceiling until
+`ob service apply` recreates it, or deploy does for services with declared extensions.
 
 On a host you have not bootstrapped yet, `ob bootstrap` does this for you. If you
 skip it on a live application, the next deploy stops at preflight with
@@ -165,8 +174,10 @@ is omitted rather than written empty.
 
 ## Three properties that always hold
 
-- **A service outlives every release.** It runs in its own Compose project, so no
-  deploy and no rollback can stop it or remove its volume.
+- **A service outlives every release.** It runs in its own Compose project.
+  Deploy can recreate PostgreSQL services with declared extensions when their
+  configuration changes; otherwise, deploy and rollback leave services running.
+  Neither removes their volumes.
 - **Its credential is generated on the server, once.** Not in your project, not
   in the generated runtime, not in the digest. Never rotated by a re-apply.
 - **Its version binds into the release digest**, so a database upgrade under an

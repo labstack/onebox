@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/compose-spec/compose-go/v2/types"
+
 	"github.com/labstack/onebox/internal/shellquote"
 )
 
@@ -466,13 +468,18 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 			"labels": map[string]any{"onebox.app": p.Name, "onebox.service": name},
 		}
 	}
+	memory := ""
 	if s.Resources != nil {
-		if s.Resources.Memory != "" {
-			svc["mem_limit"] = s.Resources.Memory
+		memory = s.Resources.Memory
+		if memory != "" {
+			svc["mem_limit"] = memory
 		}
 		if s.Resources.CPUs != "" {
 			svc["cpus"] = s.Resources.CPUs
 		}
+	}
+	if key == "postgres" {
+		svc["shm_size"] = postgresShmSize(memory)
 	}
 
 	// The whole document is generated, and the shell expansions in it are meant
@@ -493,6 +500,32 @@ func (p *Spec) renderService(n Names, name string, s Service, selectedImage stri
 		"# project: no release and no rollback of the application can stop it or\n" +
 		"# remove its data.\n"
 	return append([]byte(header), body...), nil
+}
+
+// postgresShmSize sets the POSIX shared-memory ceiling in /dev/shm for parallel
+// queries. Docker's default 64 MiB is easily exhausted. This ceiling allocates
+// nothing up front, but used pages count against mem_limit, so even the floor
+// stays within half.
+func postgresShmSize(memory string) int64 {
+	if memory == "" {
+		return 1 << 30
+	}
+	var limit types.UnitBytes
+	// Use Compose's memory parser. Zero means unlimited; negative means overflow.
+	// Leave mem_limit untouched for existing validation.
+	if err := limit.DecodeMapstructure(memory); err != nil || limit <= 0 {
+		return 1 << 30
+	}
+	shmSize := int64(limit) / 4
+	if shmSize < 256<<20 {
+		shmSize = 256 << 20
+	} else if shmSize > 1<<30 {
+		shmSize = 1 << 30
+	}
+	if shmSize > int64(limit)/2 {
+		shmSize = int64(limit) / 2
+	}
+	return shmSize
 }
 
 // identityEnv is the user and database the service is created with, under the

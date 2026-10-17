@@ -392,12 +392,12 @@
   {
     "case": "conformance/service backup policy",
     "loads": true,
-    "digest": "73135190e9f9fae42347e107f496211e4d2f75bfe5ff934ead0096f4f3571a19 postgres=ee9972ab51c56731"
+    "digest": "73135190e9f9fae42347e107f496211e4d2f75bfe5ff934ead0096f4f3571a19 postgres=ee21ed4fc49969fb"
   },
   {
     "case": "conformance/service scalar",
     "loads": true,
-    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a postgres=f566c9221cb196ab"
+    "digest": "f6ddf429bf783de806d4b1475df352d4b3ff85210dfe379804248dd3fdd0b80a postgres=ff6eeff3e4bbd9bd"
   },
   {
     "case": "conformance/settings key that is a real driver flag",
@@ -532,12 +532,12 @@
   {
     "case": "corpus/authentik.yml",
     "loads": true,
-    "digest": "e82f2e9eac87e3494cf0aa86b80f91a60f363f0af7aac28bb45e1ec6ed2e40fb postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
+    "digest": "e82f2e9eac87e3494cf0aa86b80f91a60f363f0af7aac28bb45e1ec6ed2e40fb postgres=4d380770b261847a redis=53bad39e8f359a02"
   },
   {
     "case": "corpus/ext-authentik-managed.yml",
     "loads": true,
-    "digest": "10748708444a383dc2e587286c13f06a4f3ea218835e2eeab1af83ed312ec741 postgres=d88fd3d620b30ea1 redis=53bad39e8f359a02"
+    "digest": "10748708444a383dc2e587286c13f06a4f3ea218835e2eeab1af83ed312ec741 postgres=4d380770b261847a redis=53bad39e8f359a02"
   },
   {
     "case": "corpus/ext-authentik.yml",
@@ -552,7 +552,7 @@
   {
     "case": "corpus/ext-gitea.yml",
     "loads": true,
-    "digest": "f6028df90e48b43f68c3375115ef402255ebd0aadf0ddde9eb9e2d538598cb65 postgres=446e25618a3d2e4e"
+    "digest": "f6028df90e48b43f68c3375115ef402255ebd0aadf0ddde9eb9e2d538598cb65 postgres=105be1b298f59e44"
   },
   {
     "case": "corpus/ext-immich-sourced.yml",
@@ -567,7 +567,7 @@
   {
     "case": "corpus/ext-n8n.yml",
     "loads": true,
-    "digest": "3831bd9a52d01deada4936e218fc8ba33c96a0b1d939e6bf503f3fbda8ba0895 postgres=c9e06c2c21513656 redis=83f7ec43501bb1f4"
+    "digest": "3831bd9a52d01deada4936e218fc8ba33c96a0b1d939e6bf503f3fbda8ba0895 postgres=12dc8bcbdff40808 redis=83f7ec43501bb1f4"
   },
   {
     "case": "corpus/ext-paperless.yml",
@@ -577,12 +577,12 @@
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "4574810017062b8d857ad2c43597b484fe88e6b4198f75ec74c2d705cbcf17d1 events=79a3b4327069a1dc postgres=128c7ea3ed2b4f69"
+    "digest": "4574810017062b8d857ad2c43597b484fe88e6b4198f75ec74c2d705cbcf17d1 events=79a3b4327069a1dc postgres=1aea911e88a3631c"
   },
   {
     "case": "corpus/ext-umami.yml",
     "loads": true,
-    "digest": "fd193a8c2f51cbe206e2e038ccd277c3e6785c84912b5967a2afd58c1320ac13 postgres=a0f143f02b9f5845"
+    "digest": "fd193a8c2f51cbe206e2e038ccd277c3e6785c84912b5967a2afd58c1320ac13 postgres=47bbd25b517473d9"
   },
   {
     "case": "corpus/ghost.yml",
@@ -622,7 +622,7 @@
   {
     "case": "corpus/penpot.yml",
     "loads": true,
-    "digest": "1cd500aae4deac5cf744dec3f1222b13aec493457de4b6069a3449126ad70210 postgres=fce3c20f4ad2e0e4 redis=e6f4fb5264fe75ae"
+    "digest": "1cd500aae4deac5cf744dec3f1222b13aec493457de4b6069a3449126ad70210 postgres=8a2a89524e0749e0 redis=e6f4fb5264fe75ae"
   },
   {
     "case": "corpus/pursue.yml",

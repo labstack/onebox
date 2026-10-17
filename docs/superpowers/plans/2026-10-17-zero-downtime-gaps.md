@@ -436,6 +436,17 @@ Update `TestRecoveryRetryKeepsCheckpointUntilHealthyAndSweepsStaleRoles` so its 
 
 - [ ] **Step 2: Run** `go test ./internal/engine -run TestRecovery` — Expected: the new tests FAIL.
 
+Also, decided during implementation: `restoreReleaseRoles(ctx context.Context, previous *Engine, previousID, interruptedID string) error` retains a workload only when `retainableWorkload(...)` holds and no `observed[role]` container has `release == interruptedID`.
+
+```go
+func TestRestoreReleaseRolesRollsInterruptedOwnedMatchingRevision(t *testing.T) {
+	// web's only container carries the predecessor's revision but the interrupted release label
+	// want: a "--scale web=" surge, and that container drained and retired by the roll, not retained
+}
+```
+
+`TestRestoreReleaseRolesRetainsMatchingTargetRevisions` passes the new argument and keeps its assertions.
+
 - [ ] **Step 3: Implement** the order: `removeInterruptedNonServing` (phase `cleanup`), `restoreReleaseRoles` (phase `restore`), `removeExactReleaseContainers` (phase `sweep`), `Verify` (phase `verify`), `assertNoReleaseContainers` (phase `cleanup-postcondition`), then finalization unchanged.
 
 - [ ] **Step 4: Run** the gate — Expected: PASS.

@@ -204,8 +204,12 @@ New order:
    containers, containers of `recreate` workloads, and any container holding
    the transient rollout name (`TransientContainer`), which the predecessor's
    roll needs. With no predecessor, remove everything (today's behavior).
-2. Restore the predecessor (unchanged). Rolling workloads drain and retire the
-   interrupted containers that were kept.
+2. Restore the predecessor. A workload counts as already restored only when
+   its containers match the predecessor's revision and none of them belongs
+   to the interrupted release; matching revision alone is not enough, because
+   step 3 would then remove the only containers it has. Otherwise the
+   predecessor rolls it, which drains and retires the interrupted containers
+   that were kept.
 3. Sweep every remaining interrupted-release container (today's removal).
 4. Verify, then the existing postcondition.
 

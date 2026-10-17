@@ -80,6 +80,14 @@ connection is an inconvenience, not an incident. A retry first inspects the
 operation identity and uses resume or status behaviour; it never blindly starts a
 second deploy.
 
+During a roll, Onebox retires a replica only after discovery has published its
+replacement, and stops it only after the proxy has dropped it. Recovery restores
+the previous release before removing the interrupted release's serving
+containers.
+
+Traefik restarts only when its configuration changes, not on `ob` upgrades or
+discovery repair. The deploy plan's `proxy:` line says which action it will take.
+
 ## What the envelope does not cover
 
 :::danger[Bounded claims]

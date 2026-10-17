@@ -1,6 +1,6 @@
 # Closing avoidable downtime in Onebox
 
-Status: accepted, 2026-10-17. Reviewed by Codex. Implementation plan:
+Status: implemented, 2026-10-17. Reviewed by Codex. Implementation plan:
 `docs/superpowers/plans/2026-10-17-zero-downtime-gaps.md`.
 
 Goal: remove downtime Onebox causes without need, and make the rolling

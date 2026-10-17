@@ -172,7 +172,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 			}
 			// surplus new replicas (count reduced) — drain one down to desired
 			update(completed, "retiring surplus replica")
-			if err := e.retireContainer(ctx, role, news[desired], pollEvery); err != nil {
+			if err := e.retireContainer(ctx, roleName, role, news[desired], pollEvery); err != nil {
 				return err
 			}
 			continue
@@ -256,7 +256,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 				return err
 			}
 			update(completed, "retiring old replica")
-			if err := e.retireContainer(ctx, role, olds[0], pollEvery); err != nil {
+			if err := e.retireContainer(ctx, roleName, role, olds[0], pollEvery); err != nil {
 				return err
 			}
 		}
@@ -292,7 +292,7 @@ func (e *Engine) admitNewcomers(ctx context.Context, workload string, role app.W
 // retireContainer drains one container out of rotation (poison its health so the
 // proxy drops it BEFORE any signal), waits the drain, optionally bleeds long
 // connections, then stops and removes it.
-func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id string, pollEvery time.Duration) error {
+func (e *Engine) retireContainer(ctx context.Context, workload string, role app.Workload, id string, pollEvery time.Duration) error {
 	e.sleepBusy("converge (proxy observes the newcomer)", e.Opts.ConvergeBuffer)
 
 	// Poisoning health is what takes the container out of rotation before any
@@ -328,6 +328,11 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 	drainBudget := time.Duration(probeRetries+2) * probeEvery
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
+	}
+	if e.routeGated(role) {
+		if err := e.awaitRouting(ctx, workload, role, id, false, pollEvery); err != nil {
+			return err
+		}
 	}
 	e.sleepBusy("converge (proxy drops the drained container)", e.Opts.ConvergeBuffer)
 

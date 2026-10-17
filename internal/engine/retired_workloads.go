@@ -40,7 +40,7 @@ func (e *Engine) retireRemovedWorkloads(ctx context.Context, predecessor string)
 		_, pollEvery := old.ReadyTiming()
 		for _, id := range ids {
 			e.logf("retire removed workload %s (%s)", name, id[:min(12, len(id))])
-			if err := previous.retireContainer(ctx, old, id, pollEvery); err != nil {
+			if err := previous.retireContainer(ctx, name, old, id, pollEvery); err != nil {
 				return fmt.Errorf("retire removed workload %s: %w", name, err)
 			}
 		}

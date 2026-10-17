@@ -439,6 +439,9 @@ func routedRollFake(base *transport.Fake, publishFrom map[string]int) *transport
 		if strings.Contains(cmd, ".NetworkSettings.Networks") {
 			fields := strings.Fields(cmd)
 			id := strings.Trim(fields[len(fields)-1], "'")
+			if strings.HasPrefix(id, "OLD") {
+				return transport.Result{Stdout: "10.0.0.100 "}, true
+			}
 			return transport.Result{Stdout: "10.0.0." + strings.TrimPrefix(id, "NEW") + " "}, true
 		}
 		if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "onebox.yml") {
@@ -535,6 +538,83 @@ func TestRollUnmanagedProxyReadsNoRoutes(t *testing.T) {
 	for _, cmd := range f.Commands {
 		if strings.Contains(cmd, "onebox.yml") {
 			t.Fatal(cmd)
+		}
+	}
+}
+
+func TestRetireWaitsForWithdrawalBeforeStop(t *testing.T) {
+	testRetireWithdrawal(t, "delayed")
+}
+
+func TestRetireStopsWhenWithdrawalTimesOut(t *testing.T) {
+	testRetireWithdrawal(t, "listed")
+}
+
+func TestRetireUnreadableRoutesAreNotWithdrawal(t *testing.T) {
+	testRetireWithdrawal(t, "unreadable")
+}
+
+func TestRetireUnguardedHealthcheckSkipsWithdrawalGate(t *testing.T) {
+	testRetireWithdrawal(t, "unguarded")
+}
+
+func testRetireWithdrawal(t *testing.T, mode string) {
+	t.Helper()
+	f := rollFake()
+	base := f.Dynamic
+	reads := 0
+	stopped := false
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if mode == "unguarded" && strings.Contains(cmd, "Config.Healthcheck") {
+			return transport.Result{Stdout: `{"Test":["CMD","/check"]}`}, true
+		}
+		if strings.Contains(cmd, ".NetworkSettings.Networks") {
+			return transport.Result{Stdout: "10.0.0.9 "}, true
+		}
+		if strings.HasPrefix(cmd, "cat ") && strings.Contains(cmd, "onebox.yml") {
+			reads++
+			if mode == "unreadable" {
+				return transport.Result{ExitCode: 1}, true
+			}
+			if mode == "listed" || reads <= 2 {
+				return transport.Result{Stdout: "http:\n  services:\n    onebox_web:\n      loadBalancer:\n        servers:\n          - url: http://10.0.0.9:3000\n"}, true
+			}
+			return transport.Result{Stdout: "http: {}\n"}, true
+		}
+		if strings.HasPrefix(cmd, "docker stop ") {
+			stopped = true
+			if mode == "delayed" && reads != 3 {
+				t.Errorf("stop after %d route reads, want 3", reads)
+			}
+		}
+		return base(cmd)
+	}
+	clock := &virtualClock{}
+	cfg := routedRollConfig()
+	role := cfg.Workloads["web"]
+	role.Drain = &app.Drain{Wait: "1s", Signal: "USR1"}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	err := e.retireContainer(context.Background(), "web", role, "OLD1", time.Second)
+	seq := strings.Join(f.Commands, "\n")
+	if mode == "listed" || mode == "unreadable" {
+		if err == nil || !strings.Contains(err.Error(), "still routes") {
+			t.Fatalf("error = %v, want still routes", err)
+		}
+		if stopped || strings.Contains(seq, "docker kill") || strings.Contains(seq, "docker rm") {
+			t.Fatal(seq)
+		}
+		if !strings.Contains(seq, "touch "+app.DrainFile) {
+			t.Fatal("container was not left draining")
+		}
+	} else {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !stopped {
+			t.Fatal("container was not stopped")
+		}
+		if mode == "unguarded" && (reads != 0 || clock.elapsed != 2*e.Opts.ConvergeBuffer) {
+			t.Fatalf("reads=%d elapsed=%s", reads, clock.elapsed)
 		}
 	}
 }

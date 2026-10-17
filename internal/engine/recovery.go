@@ -170,6 +170,9 @@ func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest
 		return &RecoveryIncompleteError{Phase: "cleanup", Err: err}
 	}
 	if previous != nil {
+		if err := e.undrainPredecessorReplicas(ctx, previous, request.PreviousID); err != nil {
+			return &RecoveryIncompleteError{Phase: "restore", Err: err}
+		}
 		if err := e.restoreReleaseRoles(ctx, previous, request.PreviousID, request.InterruptedID); err != nil {
 			return &RecoveryIncompleteError{Phase: "restore", Err: err}
 		}
@@ -228,8 +231,27 @@ func (e *Engine) removeInterruptedNonServing(ctx context.Context, interruptedID 
 			return fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", fields[0])
 		}
 		if previous != nil && fields[3] == "running" {
-			if role, ok := previous.Spec.Workloads[fields[1]]; ok && role.Mode() == "rolling" &&
-				fields[2] != e.names().TransientContainer(fields[1]) {
+			if role, ok := previous.Spec.Workloads[fields[1]]; ok && role.Mode() == "rolling" {
+				if fields[2] == e.names().TransientContainer(fields[1]) {
+					occupied, err := e.T.Run(ctx, "docker ps -a --format '{{.Names}}'")
+					if err != nil {
+						return err
+					}
+					if occupied.ExitCode != 0 {
+						return fmt.Errorf("list occupied container names failed (exit %d): %s", occupied.ExitCode, strings.TrimSpace(occupied.Stderr))
+					}
+					names := make(map[string]bool)
+					for _, name := range strings.FieldsFunc(occupied.Stdout, func(r rune) bool { return r == '\n' || r == ',' || r == ' ' || r == '\r' || r == '\t' }) {
+						names[name] = true
+					}
+					slot := 1
+					for names[e.names().Container(fields[1], slot)] {
+						slot++
+					}
+					if err := e.renameContainer(ctx, fields[0], e.names().Container(fields[1], slot)); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 		}
@@ -239,6 +261,39 @@ func (e *Engine) removeInterruptedNonServing(ctx context.Context, interruptedID 
 		command := "if docker inspect " + id + " >/dev/null 2>&1; then docker rm -f " + id + "; fi"
 		if err := e.mutateChecked(ctx, "remove interrupted container "+id, command); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// undrainPredecessorReplicas lets replicas drained by the interrupted roll
+// become healthy before the predecessor roll admits them again.
+func (e *Engine) undrainPredecessorReplicas(ctx context.Context, previous *Engine, previousID string) error {
+	result, err := e.T.Run(ctx, "docker ps --filter label=onebox.app="+q(e.Spec.Name)+
+		" --filter label=onebox.release="+q(previousID)+
+		" --filter status=running --format "+q(`{{.ID}}|{{.Label "com.docker.compose.service"}}`))
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("list predecessor replicas failed (exit %d): %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	var ids []string
+	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) != 2 || !validID.MatchString(fields[0]) {
+			return fmt.Errorf("invalid predecessor container record %q", line)
+		}
+		if role, ok := previous.Spec.Workloads[fields[1]]; ok && role.Mode() == "rolling" {
+			ids = append(ids, fields[0])
+		}
+	}
+	for _, id := range ids {
+		if err := e.mutateChecked(ctx, "undrain predecessor replica "+id, "docker exec "+id+" rm -f "+app.DrainFile); err != nil {
+			e.logf("undrain predecessor replica %s: %v", id, err)
 		}
 	}
 	return nil

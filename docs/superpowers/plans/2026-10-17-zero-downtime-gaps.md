@@ -467,3 +467,97 @@ func TestRestoreReleaseRolesRollsInterruptedOwnedMatchingRevision(t *testing.T) 
 - [ ] **Step 3: Commit** `docs: describe the routing gates and when Traefik restarts`
 
 - [ ] **Step 4: Operator check before release.** Record `docker compose version` on each target host. If any is older than the version recorded in Task 3 Step 1, rerun that script there before releasing.
+
+---
+
+## Slice 6: Review round (spec §6)
+
+Same gate and commit discipline. Every existing assertion stays; a test that the review found vacuous is tightened, never deleted.
+
+### Task 12: Withdrawal that survives route changes (R1)
+
+**Files:** `internal/engine/routing.go`, `internal/engine/roll.go:295-340`, `internal/engine/roll_test.go`, `internal/engine/routing_test.go`
+
+**Interfaces:**
+- `func withdrawnFromAll(doc discovery.Dynamic, address string) bool` — address is a server of no HTTP and no TCP service in the document. Replaces `withdrawnFrom` in the withdrawal gate.
+- `routeAddress` returns `("", nil)` when the container has no address on the proxy network; the routed gate still treats that as an error.
+- `retireContainer` gates withdrawal on `e.Spec.Proxy.Managed` alone.
+
+- [ ] **Tests:**
+
+```go
+func TestRetireOldReplicaOffProxyNetworkIsWithdrawn(t *testing.T)   // inspect prints " ": stop proceeds; no onebox.yml wait
+func TestRetireWaitsWhileOldReplicaServesARemovedRoute(t *testing.T) // new role has no routes; OLD1 listed under onebox-web for 2 reads: stop after the 3rd
+func TestRetireWaitsWhileOldReplicaServesAnotherProtocol(t *testing.T) // new role http; OLD1 listed under a TCP service: waits, then error on timeout
+func TestRollResumeBlocksAdoptedHealthyUnpublishedNewcomer(t *testing.T) // managed proxy, adopted NEW1 healthy, never published: error; no "docker exec OLD1"
+func TestRollWithdrawsOldReplicaInsideFullRoll(t *testing.T)        // routedRollFake lists OLD1 until drained: "docker stop" OLD1 after the read without it
+```
+
+- [ ] **Commit** `fix(rolling): withdraw old replicas whatever the new routes are`
+
+### Task 13: Converge without a restart on retry, with fresh evidence (R2, R3, R5, R6)
+
+**Files:** `internal/engine/proxy.go:85-230`, `internal/engine/proxy_test.go`
+
+**Interfaces:**
+- `const pendingComposeDigest = "sha256:" + 64 × "0"`; the converge path calls `commitProxyIdentity(ctx, proxy.Identity{Config: o.Applied.Config, Compose: pendingComposeDigest})` where it now deletes the marker.
+- Converge path: upload a staging dir holding only `compose.yaml`; `compose stop discovery`; sample `outputInodeCommand`; `up -d discovery` (with `--force-recreate` when discovery or its output was missing); `waitForPublication(ctx, sampledInode)`; `up -d proxy`; no restart.
+- Config path swap: move live `config` and `dynamic` (when present) into `<staged>/retired/`, then move the staged ones in; no `rm -rf` of live directories. The staged dir (with `retired/`) is removed by the deferred cleanup only when the apply succeeded.
+
+- [ ] **Tests** (and tighten the review's vacuous ones):
+
+```go
+func TestEnsureProxyFailedConvergeRetriesAsConverge(t *testing.T) // converge fails at "up -d discovery"; marker holds "<config> sha256:000…"; second run: no config swap, no "docker restart"
+func TestEnsureProxyConvergeStopsDiscoveryBeforeSampling(t *testing.T) // "stop discovery" precedes the inode sample, which precedes "up -d discovery"
+func TestEnsureProxyConvergeUploadsOnlyCompose(t *testing.T)    // the uploaded dir holds compose.yaml only
+func TestEnsureProxyConfigSwapRetiresLiveDirsInsteadOfDeleting(t *testing.T) // no "rm -rf '/var/lib/onebox/_host/proxy/config'"; "mv … /retired/config" present
+```
+
+Tighten: `TestEnsureProxyComposeOnlyChangeSkipsSwapAndRestart` asserts the marker write after the last discovery publication wait (not after a `docker inspect` that path never runs); `TestEnsureProxyMissingOutputForceRecreatesDiscoveryWithoutRestart` returns `""` before and a new inode after; `proxyPS` answers the discovery query with its own id.
+
+- [ ] **Commit** `fix(proxy): retry a converge as a converge and keep routes until restart`
+
+### Task 14: Name a Traefik replacement in the plan (R4)
+
+**Files:** `internal/engine/proxy_converge.go`, `internal/engine/proxy.go`, `internal/engine/proxy_converge_test.go`
+
+**Interfaces:**
+- `func traefikDefinitionChanged(live, rendered []byte) bool` — parse both as YAML; compare `services.proxy` and top-level `networks` with `reflect.DeepEqual`; parse error or empty live → `true`.
+- `observeProxy(ctx context.Context, rendered []byte) (proxyObservation, error)` also reads the live `compose.yaml` and sets `TraefikChanged bool`.
+- New action `proxyReplace`, chosen by `decideProxy` when it would choose `proxyConverge` and `TraefikChanged` is true. `EnsureProxy` runs it exactly as `proxyConverge`. `String()` → `"recreate Traefik (its container definition changed)"`.
+- `func proxyPlanLine(o proxyObservation, a proxyAction) string` → `"start Traefik"` when `len(o.ProxyIDs) == 0`, else `a.String()`. `PlanProxy` returns it.
+
+- [ ] **Tests:**
+
+```go
+func TestTraefikDefinitionChanged(t *testing.T) // discovery image only → false; traefik image → true; ports → true; unparsable live → true
+func TestDecideProxyNamesTraefikReplacement(t *testing.T) // compose drift + TraefikChanged → proxyReplace
+func TestPlanProxySaysStartWhenTraefikMissing(t *testing.T)
+```
+
+- [ ] **Commit** `fix(plan): say when Traefik itself will be replaced`
+
+### Task 15: Single-replica recovery keeps serving (R7)
+
+**Files:** `internal/engine/recovery.go`, `internal/engine/recovery_test.go`
+
+**Interfaces:**
+- In `removeInterruptedNonServing`: a running container of a rolling predecessor workload named `TransientContainer(service)` is renamed with `renameContainer` to the lowest `Container(service, i)`, `i ≥ 1`, that no container (any state) holds; it is then kept like any other serving container.
+- `func (e *Engine) undrainPredecessorReplicas(ctx context.Context, previous *Engine, previousID string) error` — for each running container labelled `onebox.release=previousID` of a rolling workload, `docker exec <id> rm -f /tmp/onebox-drain` (`app.DrainFile`), best effort; called right before `restoreReleaseRoles`.
+
+- [ ] **Tests:**
+
+```go
+func TestRecoverySingleReplicaKeepsInterruptedNewcomerServing(t *testing.T) // NEW1 holds the transient name, OLD1 drained: NEW1 renamed to the free slot, never removed before the predecessor surge; drain file removed from OLD1 before restore
+```
+
+Fix `TestRecoveryRollsPredecessorBeforeRemovingServingContainer` to use the fake's own `OLD1` listing and assert touch → stop → rm of `OLD1` with `NEW1` surviving.
+
+- [ ] **Commit** `fix(recovery): keep a single-replica workload serving through recovery`
+
+### Task 16: Docs for the review round
+
+**Files:** `site/src/content/docs/explanation/safety-envelope.mdx`
+
+- [ ] Correct the proxy sentence: Traefik restarts when its configuration changes and is recreated when its own image or ports change; `ob` upgrades and discovery repair do neither otherwise; the plan's `proxy:` line says which. State the assumption that Traefik loads published routes within the 3s converge buffer. State that the first proxy apply after upgrading restarts Traefik once and the first `ob service apply` recreates each managed service once.
+- [ ] **Commit** `docs: describe proxy actions and the one-time upgrade restarts`

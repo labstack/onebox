@@ -218,6 +218,54 @@ newcomers being admitted correctly.
 
 ---
 
+## 6. Review round decisions (2026-10-17)
+
+A whole-branch review of the first implementation found these gaps. Each
+decision below amends the section it names.
+
+- **R1, withdrawal (amends §3 Gate B).** Withdrawal is checked whenever the
+  proxy is managed, whatever the new role's routes are. A drained container
+  with no address on the proxy network is withdrawn: it cannot be a server.
+  Otherwise it is withdrawn when its address is a server of no service in
+  the document, not only of the new role's expected services. Adding a
+  route, removing one, or changing its protocol then retires old replicas
+  normally. Gate A keeps checking the new role's expected services.
+- **R2, converge marker (amends §1).** The converge path never touches
+  `config/` or `dynamic/`, so it keeps the Config half: it writes
+  `<applied config> sha256:<64 zeros>` atomically instead of deleting the
+  marker. A failed or interrupted converge is retried as a converge, not as
+  a configuration apply with a Traefik restart. The config path still
+  deletes the marker.
+- **R3, fresh publication on the converge path (amends §1).** Running
+  discovery rewrites `onebox.yml` on every container event, so an inode
+  change alone does not prove a new controller published. The converge path
+  stops discovery, samples the inode, brings discovery up (forced when it
+  was missing or the output was missing), then waits for a new inode.
+  Traefik keeps serving the last document meanwhile.
+- **R4, Traefik replacement is named (amends §1, §4).** The observation
+  compares the live and rendered `services.proxy` blocks (parsed YAML; an
+  unreadable live file counts as changed). A compose drift that changes
+  Traefik's own block is the action `recreate Traefik (its container
+  definition changed)`. It runs exactly like the converge path. The plan says
+  `start Traefik` when Traefik is not running.
+- **R5, the config path keeps serving until the restart (amends §1).** Live
+  `config/` and `dynamic/` are renamed into the staged directory instead of
+  deleted. Traefik's bind mounts follow the renamed directories, so it keeps
+  its routes until it is restarted or recreated. The retired directories go
+  with the staged directory after health; on failure they stay for the next
+  run, which restarts Traefik.
+- **R6.** The converge path uploads only `compose.yaml`, never `config/`
+  (which can hold `.env` credentials).
+- **R7, single-replica recovery (amends §5).** A running interrupted
+  container holding the transient rollout name is renamed to the lowest free
+  slot name instead of removed, so it keeps serving and frees the name the
+  predecessor's roll needs. Before restoring, the drain file is removed from
+  the predecessor's running replicas, so a replica drained by the
+  interrupted roll becomes healthy again and can be admitted.
+- **Deferred:** an end-to-end assertion that Traefik's container id survives
+  a discovery image change. The Compose behavior was verified locally on
+  Compose 5.6.0; the release operator check covers the target hosts.
+
 ## Rejected: hot reload of authored dynamic files
 
 Per-file updates in `dynamic/` can expose a half-updated set to Traefik's

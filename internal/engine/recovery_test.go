@@ -750,7 +750,8 @@ func TestRecoveryTransientRenameFailuresKeepContainer(t *testing.T) {
 
 func TestRecoveryUndrainPredecessorSelectionAndBestEffort(t *testing.T) {
 	target := &transport.Fake{}
-	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}})
+	var output bytes.Buffer
+	engine := New(testConfig(), testProject(t), target, Options{Out: &output})
 	target.Dynamic = func(command string) (transport.Result, bool) {
 		if strings.HasPrefix(command, "docker ps ") {
 			if !strings.Contains(command, "label=onebox.release="+q(engineTestPreviousReleaseID)) || !strings.Contains(command, "--filter status=running") || !strings.Contains(command, "label=onebox.app="+q(engine.Spec.Name)) {
@@ -771,6 +772,9 @@ func TestRecoveryUndrainPredecessorSelectionAndBestEffort(t *testing.T) {
 		if !strings.Contains(commands, "docker exec "+id+" rm -f "+app.DrainFile) {
 			t.Fatalf("best-effort missed %s: %s", id, commands)
 		}
+	}
+	if !strings.Contains(output.String(), "undrain predecessor replica OLD1") {
+		t.Fatalf("remote exit was not logged: %s", output.String())
 	}
 	for _, id := range []string{"WORK1", "STALE1"} {
 		if strings.Contains(commands, "docker exec "+id) {
@@ -794,5 +798,74 @@ func TestRecoveryUndrainRejectsFailedOrInvalidListing(t *testing.T) {
 		if strings.Contains(strings.Join(target.Commands, "\n"), "docker exec") {
 			t.Fatal("mutated before validating predecessor listing")
 		}
+	}
+}
+
+func TestRecoveryUndrainAbortsOnMutationError(t *testing.T) {
+	transportErr := errors.New("undrain transport failed")
+	for _, fenced := range []bool{false, true} {
+		name := "transport"
+		want := transportErr
+		if fenced {
+			name, want = "fenced", ErrFenced
+		}
+		t.Run(name, func(t *testing.T) {
+			for _, recovery := range []bool{false, true} {
+				name := "helper"
+				if recovery {
+					name = "recovery"
+				}
+				t.Run(name, func(t *testing.T) {
+					target := happyFake()
+					base := target.Dynamic
+					target.Dynamic = func(command string) (transport.Result, bool) {
+						switch {
+						case strings.HasPrefix(command, "docker ps --filter label=onebox.app="):
+							return transport.Result{Stdout: "OLD1|web\nOLD2|web"}, true
+						case strings.Contains(command, "docker ps -a --filter label=onebox.app="):
+							return transport.Result{}, true
+						case strings.Contains(command, "docker exec OLD1 rm -f "+app.DrainFile) && fenced:
+							return transport.Result{ExitCode: 97, Stderr: "onebox-fenced"}, true
+						}
+						return base(command)
+					}
+					target.Err = func(command string) error {
+						if !fenced && strings.Contains(command, "docker exec OLD1 rm -f "+app.DrainFile) {
+							return transportErr
+						}
+						return nil
+					}
+					engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+					seedInterruptedRecoveryState(t, engine)
+					engine.fenceVal = "current-owner"
+					target.Commands = nil
+					var err error
+					if recovery {
+						err = engine.recoverInterrupted(t.Context(), recoveryRequest{
+							InterruptedID: engineTestDeployReleaseID, PreviousID: engineTestPreviousReleaseID,
+							TerminalState: release.StateAborted, GateCovered: true, Phase: "abort", Journal: recoveryWriter(engine),
+						})
+						var incomplete *RecoveryIncompleteError
+						if !errors.As(err, &incomplete) || incomplete.Phase != "restore" || !errors.Is(incomplete.Err, want) {
+							t.Errorf("recovery must retain undrain error in restore phase: %v", err)
+						}
+					} else {
+						err = engine.undrainPredecessorReplicas(t.Context(), engine, engineTestPreviousReleaseID)
+						if !errors.Is(err, want) {
+							t.Errorf("undrain error = %v, want unchanged %v", err, want)
+						}
+					}
+					commands := strings.Join(target.Commands, "\n")
+					if !strings.Contains(commands, "docker exec OLD1 rm -f "+app.DrainFile) {
+						t.Fatalf("undrain error was not exercised: %s", commands)
+					}
+					for _, forbidden := range []string{"docker exec OLD2", "--scale web=", "docker exec OLD1 touch ", "docker stop ", "docker rm ", "docker ps -aq"} {
+						if strings.Contains(commands, forbidden) {
+							t.Errorf("continued recovery after undrain error (%s): %s", forbidden, commands)
+						}
+					}
+				})
+			}
+		})
 	}
 }

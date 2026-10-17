@@ -292,8 +292,12 @@ func (e *Engine) undrainPredecessorReplicas(ctx context.Context, previous *Engin
 		}
 	}
 	for _, id := range ids {
-		if err := e.mutateChecked(ctx, "undrain predecessor replica "+id, "docker exec "+id+" rm -f "+app.DrainFile); err != nil {
-			e.logf("undrain predecessor replica %s: %v", id, err)
+		result, err := e.mutate(ctx, "docker exec "+id+" rm -f "+app.DrainFile)
+		if err != nil {
+			return err
+		}
+		if result.ExitCode != 0 {
+			e.logf("undrain predecessor replica %s failed (exit %d): %s", id, result.ExitCode, strings.TrimSpace(result.Stderr))
 		}
 	}
 	return nil

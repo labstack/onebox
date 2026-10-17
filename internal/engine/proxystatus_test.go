@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -296,5 +297,66 @@ func TestStatusUnmanagedProxyUnchanged(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(f.Commands, "\n"), "_host") {
 		t.Fatalf("unmanaged status must not touch _host:\n%s", strings.Join(f.Commands, "\n"))
+	}
+}
+
+func TestProxyDriftParts(t *testing.T) {
+	local := proxy.Identity{Config: "sha256:" + strings.Repeat("a", 64), Compose: "sha256:" + strings.Repeat("b", 64)}
+	other := "sha256:" + strings.Repeat("c", 64)
+	for _, tt := range []struct {
+		name, applied string
+		want          []string
+	}{
+		{"equal", local.String(), nil},
+		{"compose", (proxy.Identity{Config: local.Config, Compose: other}).String(), []string{"compose"}},
+		{"config", (proxy.Identity{Config: other, Compose: local.Compose}).String(), []string{"config"}},
+		{"both", (proxy.Identity{Config: other, Compose: other}).String(), []string{"config", "compose"}},
+		{"legacy", local.Config, []string{"config", "compose"}},
+		{"garbage", "deadbeef", []string{"config", "compose"}},
+		{"empty", "", []string{"config", "compose"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := proxyDriftParts(tt.applied, local); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+	if got := proxyDriftParts(" ", proxy.Identity{}); !reflect.DeepEqual(got, []string{"config", "compose"}) {
+		t.Fatalf("invalid pair in sync: %v", got)
+	}
+}
+
+func TestProxyStatusNamesComposeDrift(t *testing.T) {
+	applied := ""
+	e, _, out, localHash := statusProxyEngine(t, &applied, "", "healthy")
+	local, ok := proxy.ParseIdentity(localHash)
+	if !ok {
+		t.Fatal("invalid staged identity")
+	}
+	applied = (proxy.Identity{Config: local.Config, Compose: "sha256:" + strings.Repeat("c", 64)}).String()
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatal("expected divergence")
+	}
+	if s := out.String(); !strings.Contains(s, "DRIFTED ⚠ (compose)") || strings.Contains(s, "(config") {
+		t.Fatalf("compose drift not named: %s", s)
+	}
+}
+
+func TestProxyStatusShowsDigestPairInSync(t *testing.T) {
+	applied := ""
+	e, _, out, localHash := statusProxyEngine(t, &applied, "", "healthy")
+	local, _ := proxy.ParseIdentity(localHash)
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := "config " + strings.TrimPrefix(local.Config, "sha256:")[:8] + " compose " + strings.TrimPrefix(local.Compose, "sha256:")[:8] + " (in sync)"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("missing %q: %s", want, out.String())
+	}
+}
+
+func TestShortDigest(t *testing.T) {
+	if got := shortDigest("sha256:0123456789abcdef"); got != "01234567" {
+		t.Fatalf("short digest = %q", got)
 	}
 }

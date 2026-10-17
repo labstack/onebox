@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
 	"github.com/labstack/onebox/internal/journal"
+	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/release"
 )
 
@@ -459,7 +460,8 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 	// file that was never read. renderProxy refuses the same comparison.
 	if complete(statusProxyAppliedHashRead) && raw.appliedIssue == "" {
 		status.AppliedConfigHash = raw.applied
-		if complete(statusProxyLocalHashRead) && raw.localHash != raw.applied {
+		local, _ := proxy.ParseIdentity(raw.localHash)
+		if complete(statusProxyLocalHashRead) && len(proxyDriftParts(raw.applied, local)) > 0 {
 			status.ConfigDiverged = true
 			status.Issues = append(status.Issues, "local and applied configuration hashes differ")
 		}

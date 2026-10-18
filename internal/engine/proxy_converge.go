@@ -105,9 +105,17 @@ func (e *Engine) observeProxy(ctx context.Context, rendered []byte) (proxyObserv
 		return o, err
 	}
 	if len(o.ProxyIDs) > 0 {
-		image := e.Spec.Proxy.Image
+		var planned struct {
+			Services map[string]struct {
+				Image string
+			}
+		}
+		if err := yaml.Unmarshal(rendered, &planned); err != nil {
+			return o, fmt.Errorf("read rendered proxy image: %w", err)
+		}
+		image := planned.Services["proxy"].Image
 		if image == "" {
-			image = proxy.DefaultImage
+			return o, fmt.Errorf("read rendered proxy image: services.proxy.image is empty")
 		}
 		running, err := e.T.Run(ctx, "docker inspect -f '{{.Image}}' "+q(o.ProxyIDs[0]))
 		if err != nil {

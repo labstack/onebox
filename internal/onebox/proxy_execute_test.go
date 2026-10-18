@@ -15,6 +15,27 @@ import (
 )
 
 func TestExecuteBindsSealedProxyAction(t *testing.T) {
+	testExecuteSealedProxyAction(t, false)
+}
+
+func TestExecuteProceedsWhenSealedProxyActionMatches(t *testing.T) {
+	testExecuteSealedProxyAction(t, true)
+}
+
+type proxyTransferFailure struct {
+	*transport.Fake
+	err error
+}
+
+func (f *proxyTransferFailure) Upload(ctx context.Context, localDir, remoteDir string) error {
+	if err := f.Fake.Upload(ctx, localDir, remoteDir); err != nil {
+		return err
+	}
+	return f.err
+}
+
+func testExecuteSealedProxyAction(t *testing.T, matching bool) {
+	t.Helper()
 	for _, noOp := range []bool{false, true} {
 		t.Run(map[bool]string{false: "deploy", true: "no-op"}[noOp], func(t *testing.T) {
 			f := serviceFake()
@@ -93,19 +114,36 @@ func TestExecuteBindsSealedProxyAction(t *testing.T) {
 				t.Fatalf("fixture plan: no-op=%v proxy=%q", plan.NoOp, plan.ProxyAction)
 			}
 			approval := approvalForTestPlan(t, &plan)
-			drift = true
-			f.Err = func(cmd string) error {
-				if strings.Contains(cmd, "find '/var/lib/onebox/_host/proxy'") || strings.Contains(cmd, "mkdir -p '/var/lib/onebox/_host/proxy/acme'") {
-					return errors.New("proxy mutation reached without the bound action")
+			drift = !matching
+			if !matching {
+				f.Err = func(cmd string) error {
+					if strings.Contains(cmd, "find '/var/lib/onebox/_host/proxy'") || strings.Contains(cmd, "mkdir -p '/var/lib/onebox/_host/proxy/acme'") {
+						return errors.New("proxy mutation reached without the bound action")
+					}
+					return nil
 				}
-				return nil
 			}
-			_, err = svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
-			if err == nil || !strings.Contains(err.Error(), "unchanged") || !strings.Contains(err.Error(), "restart Traefik (configuration changed)") || !strings.Contains(err.Error(), "re-plan") {
-				t.Fatalf("sealed proxy action must reach the engine on this execution path: %v", err)
+			transferErr := errors.New("release transfer reached")
+			if matching && !noOp {
+				svc.connect = func(context.Context, transport.Route) (transport.Transport, error) {
+					return &proxyTransferFailure{Fake: f, err: transferErr}, nil
+				}
 			}
-			if len(f.Uploads) != 0 {
-				t.Fatalf("proxy drift reached release transfer: %v", f.Uploads)
+			result, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindDeploy, Plan: &plan, Approval: &approval})
+			if !matching {
+				if err == nil || !strings.Contains(err.Error(), "unchanged") || !strings.Contains(err.Error(), "restart Traefik (configuration changed)") || !strings.Contains(err.Error(), "re-plan") {
+					t.Fatalf("sealed proxy action must reach the engine on this execution path: %v", err)
+				}
+				if len(f.Uploads) != 0 {
+					t.Fatalf("proxy drift reached release transfer: %v", f.Uploads)
+				}
+			} else if noOp {
+				if err != nil || !result.NoOp || result.Status != OperationStatusNoOp || len(f.Uploads) != 0 {
+					t.Fatalf("matching no-op plan must succeed without transfer: result=%+v err=%v uploads=%v", result, err, f.Uploads)
+				}
+			} else if !errors.Is(err, transferErr) || len(f.Uploads) != 1 ||
+				!strings.Contains(f.Uploads[0], "/releases/"+plan.Operation.ReleaseID) {
+				t.Fatalf("matching deploy plan must reach release transfer: %v uploads=%v", err, f.Uploads)
 			}
 		})
 	}

@@ -59,26 +59,26 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		if err == nil || !discoveryStopped {
 			return
 		}
-		cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		fallbackContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		res, startErr := e.hostMutate(cleanupContext, "docker start "+proxy.DiscoveryContainerName)
+		res, startErr := e.hostMutate(fallbackContext, "docker start "+proxy.DiscoveryContainerName)
 		if startErr == nil && res.ExitCode != 0 {
 			startErr = fmt.Errorf("exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 		}
 		if startErr != nil {
-			e.logf("proxy: discovery not restarted after failed converge: %v", startErr)
+			e.logf("proxy: discovery not restarted after failure: %v", startErr)
 		} else {
-			e.logf("proxy: discovery restarted after failed converge")
+			e.logf("proxy: discovery restarted after failure")
 		}
 		if res.ExitCode != 0 && startErr != nil {
-			res, upErr := e.hostMutate(cleanupContext, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d discovery")
+			res, upErr := e.hostMutate(fallbackContext, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d discovery")
 			if upErr == nil && res.ExitCode != 0 {
 				upErr = fmt.Errorf("exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
 			}
 			if upErr != nil {
-				e.logf("proxy: discovery not recreated after failed converge: %v", upErr)
+				e.logf("proxy: discovery not recreated after failure: %v", upErr)
 			} else {
-				e.logf("proxy: discovery recreated after failed converge")
+				e.logf("proxy: discovery recreated after failure")
 			}
 		}
 	}()
@@ -115,6 +115,20 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	if expected := e.Opts.ExpectedProxyAction; expected != "" {
 		if current := proxyPlanLine(o, action); current != expected {
 			return fmt.Errorf("proxy action changed since plan: planned %q, current %q — re-plan", expected, current)
+		}
+	}
+	pullDiscovery := func() error {
+		image := q(proxy.DiscoveryImage(e.Opts.Runner.Version))
+		if res, err := e.hostMutate(ctx, "docker image inspect "+image+" >/dev/null 2>&1 || docker pull "+image); err != nil {
+			return err
+		} else if res.ExitCode != 0 {
+			return fmt.Errorf("proxy discovery image: %s", strings.TrimSpace(res.Stderr))
+		}
+		return nil
+	}
+	if action == proxyApply {
+		if err := pullDiscovery(); err != nil {
+			return err
 		}
 	}
 	cleanupUploads := "find " + q(hp.Dir) + " -mindepth 1 -maxdepth 1 -type d -name " + q(".staged-*") +
@@ -218,13 +232,10 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	// A config swap replaces discovery's bind-mounted directory inode.
 	forceDiscovery := action == proxyApply || len(o.DiscoveryIDs) == 0 || o.OutputInode == ""
 	previousInode := ""
-	image := q(proxy.DiscoveryImage(e.Opts.Runner.Version))
-	if res, err := e.hostMutate(ctx, "docker image inspect "+image+" >/dev/null 2>&1 || docker pull "+image); err != nil {
-		return err
-	} else if res.ExitCode != 0 {
-		return fmt.Errorf("proxy discovery image: %s", strings.TrimSpace(res.Stderr))
-	}
 	if action == proxyConverge || action == proxyReplace {
+		if err := pullDiscovery(); err != nil {
+			return err
+		}
 		discoveryStopped = true
 		if res, err := e.hostMutate(ctx, compose+" stop discovery"); err != nil {
 			return err
@@ -275,10 +286,8 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 			return fmt.Errorf("proxy restart: %s", strings.TrimSpace(res.Stderr))
 		}
 	}
-	if action == proxyApply || !before[ids[0]] {
-		if err := e.waitHealth(ctx, ids[0], "healthy", 180*time.Second, 5*time.Second); err != nil {
-			return fmt.Errorf("proxy never became healthy (the Traefik static configuration must enable ping: {}): %w", err)
-		}
+	if err := e.waitHealth(ctx, ids[0], "healthy", 180*time.Second, 5*time.Second); err != nil {
+		return fmt.Errorf("proxy never became healthy (the Traefik static configuration must enable ping: {}): %w", err)
 	}
 	if err := e.commitProxyIdentity(ctx, id); err != nil {
 		return err

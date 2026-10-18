@@ -466,7 +466,7 @@ func TestRestoreReleaseRolesRollsInterruptedOwnedMatchingRevision(t *testing.T) 
 
 - [ ] **Step 3: Commit** `docs: describe the routing gates and when Traefik restarts`
 
-- [ ] **Step 4: Operator check before release.** Record `docker compose version` on each target host. If any is older than the version recorded in Task 3 Step 1, rerun that script there before releasing.
+- [ ] **Step 4: Operator check before release.** Record `docker compose version` on each target host. If any is older than the version recorded in Task 3 Step 1, rerun that script there before releasing. Also check, on each host, that `docker compose stop a` leaves a `depends_on` dependent `b` running and that `up -d a` keeps `b`'s container.
 
 ---
 
@@ -567,3 +567,27 @@ Fix `TestRecoveryRollsPredecessorBeforeRemovingServingContainer` to use the fake
 
 - [ ] Correct the proxy sentence: Traefik restarts when its configuration changes and is recreated when its own image or ports change; `ob` upgrades and discovery repair do neither otherwise; the plan's `proxy:` line says which. State the assumption that Traefik loads published routes within the 3s converge buffer. State that the first proxy apply after upgrading restarts Traefik once and the first `ob service apply` recreates each managed service once.
 - [ ] **Commit** `docs: describe proxy actions and the one-time upgrade restarts`
+
+### Task 17: Second review round (spec §6 R8-R11)
+
+**Files:** `internal/engine/proxy.go`, `internal/engine/proxy_converge.go`, `internal/engine/routing.go`, `internal/engine/recovery_test.go`, and their tests
+
+**Interfaces:**
+- `const pendingReplaceDigest = "sha256:" + 63 × "0" + "1"`. The replace path commits `{Config: o.Applied.Config, Compose: pendingReplaceDigest}`; the converge path keeps `pendingComposeDigest`. `observeProxy` sets `TraefikChanged = true` when `Applied.Compose == pendingReplaceDigest`.
+- Before `compose stop discovery`: `docker image inspect <image> >/dev/null 2>&1 || docker pull <image>` with `<image> = proxy.DiscoveryImage(e.Opts.Runner.Version)`; a failed pull returns before the stop.
+- After the stop, any returned error first runs `docker start onebox-discovery` (best effort; its result is logged, not returned).
+- The `proxyUnchanged` branch runs the same stale `.staged-*` cleanup the success path runs.
+- Remove `withdrawnFrom` and its test.
+
+- [ ] **Tests:**
+
+```go
+func TestEnsureProxyFailedReplaceIsPlannedAsReplace(t *testing.T) // replace fails at "up -d discovery": marker holds pendingReplaceDigest; PlanProxy then says "recreate Traefik (its container definition changed)"
+func TestEnsureProxyPullsDiscoveryBeforeStopping(t *testing.T)    // image missing: "docker pull" precedes "stop discovery"; failed pull: no "stop discovery"
+func TestEnsureProxyRestartsDiscoveryAfterFailedUp(t *testing.T)  // "up -d discovery" fails: "docker start onebox-discovery" runs before the error returns
+func TestEnsureProxyUnchangedCleansStaleStaging(t *testing.T)     // unchanged path runs the ".staged-*" cleanup
+func TestRecoverySurgesWhenOnlyInterruptedNewcomerServes(t *testing.T) // replicas: 1, no predecessor replica, NEW1 holds the transient name: NEW1 renamed to slot 1, predecessor surge takes the transient name, then NEW1 drained, stopped, removed
+```
+
+- [ ] **Gate:** `go build ./... && go vet ./... && go test -p 2 ./...`; `golangci-lint run ./...` 0 issues.
+- [ ] **Commit** `fix(proxy): never leave discovery stopped and keep a failed replace labelled`

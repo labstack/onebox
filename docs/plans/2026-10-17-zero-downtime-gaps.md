@@ -262,6 +262,27 @@ decision below amends the section it names.
   predecessor's roll needs. Before restoring, the drain file is removed from
   the predecessor's running replicas, so a replica drained by the
   interrupted roll becomes healthy again and can be admitted.
+- **R8, a failed replace stays a replace (amends R2, R4).** The replace path
+  writes its own pending digest, `sha256:<63 zeros>1`, and a marker carrying
+  it counts as a Traefik definition change. A retry after the live
+  `compose.yaml` was already moved is planned and labelled as a replace.
+- **R9, discovery is never left stopped (amends R3).** The discovery image is
+  pulled when missing before discovery is stopped. If any step after the
+  stop fails, the existing `onebox-discovery` container is started again,
+  best effort, before the error returns.
+- **R10.** The unchanged path also removes stale `.staged-*` directories: a
+  committed final marker means Traefik already serves the live directories.
+- **R11.** The dead `withdrawnFrom` goes. Recovery gains a test for the surge
+  case: the predecessor replica is gone and the interrupted newcomer is the
+  only healthy container.
+- **Accepted:** after a failed proxy apply, a roll that skips the proxy step
+  (`ob secrets push`, recovery) can read a routing document Traefik is not
+  serving. Run `ob proxy apply` first; `ob status` shows the proxy as
+  drifted. Refusing such rolls outright would also block `ob abort` during
+  an incident.
+- **Operator check additions:** on each target host, `compose stop` of a
+  service leaves a `depends_on` dependent running, and `up -d` of the
+  stopped service keeps the dependent's container.
 - **Deferred:** an end-to-end assertion that Traefik's container id survives
   a discovery image change. The Compose behavior was verified locally on
   Compose 5.6.0; the release operator check covers the target hosts.

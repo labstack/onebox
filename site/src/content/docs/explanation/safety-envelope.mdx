@@ -81,12 +81,16 @@ operation identity and uses resume or status behaviour; it never blindly starts 
 second deploy.
 
 During a roll, Onebox retires a replica only after discovery has published its
-replacement, and stops it only after the proxy has dropped it. Recovery restores
-the previous release before removing the interrupted release's serving
-containers.
+replacement, and stops it only after the proxy has dropped it. This assumes
+Traefik loads published routes within the 3s converge buffer. Recovery restores
+the previous release before removing the interrupted release's serving containers.
 
-Traefik restarts only when its configuration changes, not on `ob` upgrades or
-discovery repair. The deploy plan's `proxy:` line says which action it will take.
+Traefik restarts when its configuration changes and is recreated when its own
+image or ports change. Otherwise, `ob` upgrades and discovery repair do neither.
+The deploy plan's `proxy:` line says which action it will take.
+
+After this upgrade, the first `ob proxy apply` restarts Traefik once; the first
+`ob service apply` recreates each managed service once.
 
 ## What the envelope does not cover
 

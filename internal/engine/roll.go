@@ -139,6 +139,7 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 	defer stop()
 
 	pulled := false
+	admitted := map[string]bool{}
 	// Each pass converges by one step: add a missing new replica, or retire a
 	// surplus/old one. The guard bounds a pathological non-converging loop.
 	for guard := 0; ; guard++ {
@@ -162,12 +163,12 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 
 		if len(news) >= desired && len(olds) == 0 {
 			if len(news) == desired {
-				if err := e.admitNewcomers(ctx, roleName, role, news, within, pollEvery); err != nil {
+				if err := e.admitNewcomers(ctx, roleName, role, news, admitted, within, pollEvery); err != nil {
 					return err
 				}
 				break
 			}
-			if err := e.admitNewcomers(ctx, roleName, role, news[:desired], within, pollEvery); err != nil {
+			if err := e.admitNewcomers(ctx, roleName, role, news[:desired], admitted, within, pollEvery); err != nil {
 				return err
 			}
 			// surplus new replicas (count reduced) — drain one down to desired
@@ -247,12 +248,13 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 					return errors.Join(fmt.Errorf("role %s: %w", roleName, err), cleanupErr)
 				}
 			}
+			admitted[newID] = true
 			news = append(news, newID)
 		}
 
 		// retire one old, freeing its slot for the newcomer just added
 		if len(olds) > 0 {
-			if err := e.admitNewcomers(ctx, roleName, role, news, within, pollEvery); err != nil {
+			if err := e.admitNewcomers(ctx, roleName, role, news, admitted, within, pollEvery); err != nil {
 				return err
 			}
 			update(completed, "retiring old replica")
@@ -274,9 +276,12 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 	return nil
 }
 
-// admitNewcomers checks replacements without removing adopted containers on failure.
-func (e *Engine) admitNewcomers(ctx context.Context, workload string, role app.Workload, ids []string, within, pollEvery time.Duration) error {
+// admitNewcomers checks replacements once without removing adopted containers on failure.
+func (e *Engine) admitNewcomers(ctx context.Context, workload string, role app.Workload, ids []string, admitted map[string]bool, within, pollEvery time.Duration) error {
 	for _, id := range ids {
+		if admitted[id] {
+			continue
+		}
 		if err := e.waitHealth(ctx, id, "healthy", within, pollEvery); err != nil {
 			return err
 		}
@@ -285,6 +290,7 @@ func (e *Engine) admitNewcomers(ctx context.Context, workload string, role app.W
 				return err
 			}
 		}
+		admitted[id] = true
 	}
 	return nil
 }

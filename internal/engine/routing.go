@@ -153,7 +153,7 @@ func (e *Engine) awaitRouting(ctx context.Context, workload string, role app.Wor
 			return nil
 		}
 		if !e.Opts.Now().Before(deadline) {
-			message := fmt.Sprintf("discovery did not publish container %s for workload %s; check docker logs onebox-discovery", id, workload)
+			message := fmt.Sprintf("discovery did not publish container %s for workload %s; check docker logs %s", id, workload, proxy.DiscoveryContainerName)
 			if !routed {
 				message = fmt.Sprintf("discovery still routes to container %s for workload %s; fix discovery and run ob resume", id, workload)
 			}

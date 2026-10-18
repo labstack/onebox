@@ -140,6 +140,39 @@ func rollFake() *transport.Fake {
 
 func noSleep(time.Duration) {}
 
+func TestRollAdmitsEachNewcomerOnce(t *testing.T) {
+	f := replicaFake(3, []string{"OLD1", "OLD2", "OLD3"}, map[string]string{
+		"OLD1": "sample-web-1", "OLD2": "sample-web-2", "OLD3": "sample-web-3",
+	}, false)
+	base := f.Dynamic
+	inspections := map[string]int{}
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "Health.Status") {
+			fields := strings.Fields(cmd)
+			if id := fields[len(fields)-1]; strings.HasPrefix(id, "NEW") {
+				inspections[id]++
+			}
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	role := cfg.Workloads["web"]
+	role.Replicas = 3
+	cfg.Workloads["web"] = role
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	for pass := range 2 {
+		inspections = map[string]int{}
+		if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"NEW1", "NEW2", "NEW3"} {
+			if inspections[id] != 1 {
+				t.Errorf("pass %d: %s admitted %d times, want once", pass, id, inspections[id])
+			}
+		}
+	}
+}
+
 // A single-replica roll ends with the survivor in stable slot `sample-web-1`, renamed
 // only AFTER the old is gone (so the name is free), and never carries the
 // Compose-generated prefix (renamed to `sample-web-new` the instant it's created).

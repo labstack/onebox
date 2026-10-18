@@ -466,7 +466,7 @@ func TestRestoreReleaseRolesRollsInterruptedOwnedMatchingRevision(t *testing.T) 
 
 - [ ] **Step 3: Commit** `docs: describe the routing gates and when Traefik restarts`
 
-- [ ] **Step 4: Operator check before release.** Record `docker compose version` on each target host. If any is older than the version recorded in Task 3 Step 1, rerun that script there before releasing. Also check, on each host, that `docker compose stop a` leaves a `depends_on` dependent `b` running and that `up -d a` keeps `b`'s container.
+- [ ] **Step 4: Operator check before release.** Record `docker compose version` on each target host. If any is older than the version recorded in Task 3 Step 1, rerun that script there before releasing. Also check, on each host, that `docker compose stop a` leaves a `depends_on` dependent `b` running and that `up -d a` keeps `b`'s container; that `docker inspect -f '{{.Image}}'` of a container equals `docker image inspect -f '{{.Id}}'` of its tag; and that `up -d` recreates a container after its tag is re-pulled to a new image.
 
 ---
 
@@ -619,3 +619,26 @@ Plus one execution-path test that a sealed plan's `ProxyAction` reaches `Expecte
 
 - [ ] **Gate:** `go build ./... && go vet ./... && go test -p 2 ./...`; `golangci-lint run ./...` 0 issues.
 - [ ] **Commit(s)**: `fix(proxy): restore discovery on every path and bind the planned proxy action`, `perf(rolling): admit each newcomer once`.
+
+### Task 19: Final review round (spec §6 R16 withdrawn, R18, R19)
+
+**Files:** `internal/engine/roll.go`, `internal/engine/proxy.go`, `internal/engine/proxy_converge.go`, their tests, `internal/onebox/proxy_execute_test.go`
+
+- Revert the R16 behavior: `admitNewcomers` re-checks every newcomer it is given; remove the `admitted` map and `TestRollAdmitsEachNewcomerOnce`.
+- R18: on `proxyConverge` and `proxyReplace`, `waitHealth(ids[0], "healthy", 180s, 5s)` always runs before `commitProxyIdentity`.
+- R19: move the apply path's discovery image pull to right after the drift check; give the discovery fallback its own 30s context and path-neutral log text; take the Traefik image for the R14 comparison from `services.proxy.image` in the rendered compose.
+
+- [ ] **Tests:**
+
+```go
+func TestRollStopsWhenAdmittedNewcomerFailsLater(t *testing.T)    // steady 3: NEW1 turns unhealthy after OLD1 is removed: error; OLD2, OLD3 still serving
+func TestRollKeepsLastHealthyOldWhenNewcomersFail(t *testing.T)   // 3→2: both newcomers unhealthy after OLD2 is removed: error; OLD3 not retired
+func TestEnsureProxyRetryWaitsForHealthBeforeCommit(t *testing.T) // pending marker, PX1 unhealthy, not recreated: error; no final marker
+func TestEnsureProxyProceedsWhenPlannedActionMatches(t *testing.T) // engine converge with matching ExpectedProxyAction: commits
+func TestExecuteProceedsWhenSealedProxyActionMatches(t *testing.T) // onebox: deploy reaches transfer; no-op path succeeds
+func TestEnsureProxyFallbackSkipsComposeWhenStartSucceeds(t *testing.T) // exactly one "up -d discovery" (the failed one)
+func TestEnsureProxyApplyPullsBeforeInvalidatingMarker(t *testing.T)    // pull precedes "rm -f …config.hash"
+```
+
+- [ ] **Gate:** `go build ./... && go vet ./... && go test -p 2 ./...`; `golangci-lint run ./...` 0 issues.
+- [ ] **Commit(s):** `fix(rolling): re-check every newcomer before each retirement`, `fix(proxy): commit the marker only after health on every path`.

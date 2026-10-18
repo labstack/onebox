@@ -291,9 +291,23 @@ decision below amends the section it names.
 - **R15, failed uploads do not accumulate.** At the start of a run, staged
   directories with no `retired/` inside are removed; those with retired
   configuration stay until an apply succeeds.
-- **R16.** A roll admits each newcomer once per roll invocation instead of on
-  every pass. **R17.** Routing errors name the discovery container through
+- **R16, withdrawn.** Admitting each newcomer once let a roll retire every old
+  replica and report success after an admitted newcomer failed under load,
+  breaking §3 Gate A. Gate A re-checks every newcomer before each retirement
+  and before success; the extra round trips are the price of the guarantee.
+  **R17.** Routing errors name the discovery container through
   `proxy.DiscoveryContainerName`.
+- **R18, the marker always follows health.** The converge and replace paths
+  wait for Traefik's health before committing the final identity, even when
+  the container was not recreated in this run.
+- **R19.** The apply path pulls the discovery image right after the drift
+  check, before it invalidates the marker or swaps directories. The discovery
+  fallback has its own 30s budget. The Traefik image for the comparison is
+  read from the rendered compose, not defaulted twice.
+- **Polish left as is:** `ob status` does not show the R14 image signal; both
+  pending markers render as compose drift; the binding compares the plan
+  line's text (plans expire, so a rewording only refuses outstanding plans);
+  the unchanged path runs two cleanups.
 - **Kept by design after the second code review:** a drain that never takes
   effect fails the roll instead of stopping a routed replica (§3 Gate B); the
   slot search in recovery stays, since a placeholder name would add a host

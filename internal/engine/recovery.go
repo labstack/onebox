@@ -166,13 +166,21 @@ func (e *Engine) recoverInterrupted(ctx context.Context, request recoveryRequest
 		}
 	}()
 
-	if err := e.removeExactReleaseContainers(ctx, request.InterruptedID); err != nil {
+	if err := e.removeInterruptedNonServing(ctx, request.InterruptedID, previous); err != nil {
 		return &RecoveryIncompleteError{Phase: "cleanup", Err: err}
 	}
 	if previous != nil {
-		if err := e.restoreReleaseRoles(ctx, previous, request.PreviousID); err != nil {
+		if err := e.undrainPredecessorReplicas(ctx, previous, request.PreviousID); err != nil {
 			return &RecoveryIncompleteError{Phase: "restore", Err: err}
 		}
+		if err := e.restoreReleaseRoles(ctx, previous, request.PreviousID, request.InterruptedID); err != nil {
+			return &RecoveryIncompleteError{Phase: "restore", Err: err}
+		}
+	}
+	if err := e.removeExactReleaseContainers(ctx, request.InterruptedID); err != nil {
+		return &RecoveryIncompleteError{Phase: "sweep", Err: err}
+	}
+	if previous != nil {
 		if err := previous.Verify(ctx); err != nil {
 			return &RecoveryIncompleteError{Phase: "verify", Err: err}
 		}
@@ -200,6 +208,101 @@ func (e *Engine) exactReleaseContainerIDs(ctx context.Context, releaseID string)
 	return splitIDs(result.Stdout)
 }
 
+func (e *Engine) removeInterruptedNonServing(ctx context.Context, interruptedID string, previous *Engine) error {
+	result, err := e.T.Run(ctx, "docker ps -a --filter label=onebox.app="+q(e.Spec.Name)+
+		" --filter label=onebox.release="+q(interruptedID)+
+		" --format "+q(`{{.ID}}|{{.Label "com.docker.compose.service"}}|{{.Names}}|{{.State}}`))
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("list interrupted-release containers failed (exit %d): %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	var remove []string
+	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) != 4 {
+			return fmt.Errorf("invalid interrupted-release container record %q", line)
+		}
+		if !validID.MatchString(fields[0]) {
+			return fmt.Errorf("suspicious container id %q from docker ps — refusing to reuse in a command", fields[0])
+		}
+		if previous != nil && fields[3] == "running" {
+			if role, ok := previous.Spec.Workloads[fields[1]]; ok && role.Mode() == "rolling" {
+				if fields[2] == e.names().TransientContainer(fields[1]) {
+					occupied, err := e.T.Run(ctx, "docker ps -a --format '{{.Names}}'")
+					if err != nil {
+						return err
+					}
+					if occupied.ExitCode != 0 {
+						return fmt.Errorf("list occupied container names failed (exit %d): %s", occupied.ExitCode, strings.TrimSpace(occupied.Stderr))
+					}
+					names := make(map[string]bool)
+					for _, name := range strings.FieldsFunc(occupied.Stdout, func(r rune) bool { return r == '\n' || r == ',' || r == ' ' || r == '\r' || r == '\t' }) {
+						names[name] = true
+					}
+					slot := 1
+					for names[e.names().Container(fields[1], slot)] {
+						slot++
+					}
+					if err := e.renameContainer(ctx, fields[0], e.names().Container(fields[1], slot)); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+		}
+		remove = append(remove, fields[0])
+	}
+	for _, id := range remove {
+		command := "if docker inspect " + id + " >/dev/null 2>&1; then docker rm -f " + id + "; fi"
+		if err := e.mutateChecked(ctx, "remove interrupted container "+id, command); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// undrainPredecessorReplicas lets replicas drained by the interrupted roll
+// become healthy before the predecessor roll admits them again.
+func (e *Engine) undrainPredecessorReplicas(ctx context.Context, previous *Engine, previousID string) error {
+	result, err := e.T.Run(ctx, "docker ps --filter label=onebox.app="+q(e.Spec.Name)+
+		" --filter label=onebox.release="+q(previousID)+
+		" --filter status=running --format "+q(`{{.ID}}|{{.Label "com.docker.compose.service"}}`))
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("list predecessor replicas failed (exit %d): %s", result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	var ids []string
+	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "|")
+		if len(fields) != 2 || !validID.MatchString(fields[0]) {
+			return fmt.Errorf("invalid predecessor container record %q", line)
+		}
+		if role, ok := previous.Spec.Workloads[fields[1]]; ok && role.Mode() == "rolling" {
+			ids = append(ids, fields[0])
+		}
+	}
+	for _, id := range ids {
+		result, err := e.mutate(ctx, "docker exec "+id+" rm -f "+app.DrainFile)
+		if err != nil {
+			return err
+		}
+		if result.ExitCode != 0 {
+			e.logf("undrain predecessor replica %s failed (exit %d): %s", id, result.ExitCode, strings.TrimSpace(result.Stderr))
+		}
+	}
+	return nil
+}
+
 func (e *Engine) removeExactReleaseContainers(ctx context.Context, releaseID string) error {
 	ids, err := e.exactReleaseContainerIDs(ctx, releaseID)
 	if err != nil {
@@ -225,7 +328,7 @@ func (e *Engine) assertNoReleaseContainers(ctx context.Context, releaseID string
 	return nil
 }
 
-func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, previousID string) error {
+func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, previousID, interruptedID string) error {
 	composePath := release.PathsFor(e.names()).Releases + "/" + previousID + "/compose.yaml"
 	revisions, err := previous.releaseWorkloadRevisions(ctx, composePath)
 	if err != nil {
@@ -237,7 +340,14 @@ func (e *Engine) restoreReleaseRoles(ctx context.Context, previous *Engine, prev
 	}
 	for _, roleName := range previous.Spec.ReleaseOrder() {
 		role := previous.Spec.Workloads[roleName]
-		if retainableWorkload(observed[roleName], revisions[roleName], role.Count()) {
+		interruptedOwned := false
+		for _, container := range observed[roleName] {
+			if container.release == interruptedID {
+				interruptedOwned = true
+				break
+			}
+		}
+		if !interruptedOwned && retainableWorkload(observed[roleName], revisions[roleName], role.Count()) {
 			previous.logf("restore %s: already at target workload revision", roleName)
 			continue
 		}

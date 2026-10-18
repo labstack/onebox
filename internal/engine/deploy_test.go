@@ -71,9 +71,23 @@ func happyFake() *transport.Fake {
 		scaleCount, recreateCount := 0, 0
 		initialScaleCount, initialRecreateCount := 0, 0
 		seenExactReleaseQuery := false
+		recoveryRelease := ""
+		interruptedOldGone := false
 		newGone, workerGone := false, false
 		name := map[string]string{"OLD1": "web"}
 		for _, c := range f.Commands {
+			if recoveryRelease == "" && strings.Contains(c, "docker ps -a --filter label=onebox.app=") && strings.Contains(c, "label=onebox.release=") {
+				_, releaseFilter, _ := strings.Cut(c, "label=onebox.release=")
+				recoveryRelease = strings.Fields(releaseFilter)[0]
+				// Recovery rolls the predecessor into NEW1/W1; the interrupted
+				// web replica becomes OLD1 in this fixture's next roll.
+				scaled, oldGone, drained = false, false, false
+				scaleCount, recreateCount = 0, 0
+				initialScaleCount, initialRecreateCount = 0, 0
+				newGone, workerGone = false, true
+				name = map[string]string{"OLD1": "web"}
+				seenExactReleaseQuery = true
+			}
 			if strings.Contains(c, "docker ps -aq") && strings.Contains(c, "label=onebox.app=") && strings.Contains(c, "label=onebox.release=") {
 				seenExactReleaseQuery = true
 			}
@@ -90,8 +104,11 @@ func happyFake() *transport.Fake {
 					initialRecreateCount++
 				}
 			}
-			if strings.Contains(c, "docker rm OLD1") {
+			if strings.Contains(c, "docker rm OLD1") || strings.Contains(c, "docker rm -f OLD1") {
 				oldGone = true
+				if recoveryRelease != "" {
+					interruptedOldGone = true
+				}
 			}
 			if strings.Contains(c, "docker rm -f NEW1") {
 				newGone = true
@@ -114,6 +131,11 @@ func happyFake() *transport.Fake {
 			return fs[len(fs)-1]
 		}
 		switch {
+		case strings.Contains(cmd, "docker ps -a --filter label=onebox.app=") && strings.Contains(cmd, "label=onebox.release="):
+			if !interruptedOldGone {
+				return transport.Result{Stdout: "OLD1|web|sample-web-1|running"}, true
+			}
+			return transport.Result{}, true
 		// Compose counts stopped replicas toward --scale, so the roll asks for
 		// them separately; these fakes model none.
 		case strings.Contains(cmd, "status=exited"):
@@ -180,6 +202,12 @@ func happyFake() *transport.Fake {
 			}
 			return transport.Result{}, true
 		case strings.Contains(cmd, "docker ps -aq") && strings.Contains(cmd, "label=onebox.app=") && strings.Contains(cmd, "label=onebox.release="):
+			if recoveryRelease != "" && strings.Contains(cmd, "label=onebox.release="+recoveryRelease) {
+				if !interruptedOldGone {
+					return transport.Result{Stdout: "OLD1\n"}, true
+				}
+				return transport.Result{}, true
+			}
 			var ids []string
 			if initialScaleCount > 0 && !newGone {
 				ids = append(ids, "NEW1")
@@ -299,7 +327,17 @@ func TestDeployUpgradesManagedProxyAfterReadOnlyPreconditions(t *testing.T) {
 	f := happyFake()
 	base := f.Dynamic
 	proxyRuntime := legacyProxyPS(f)
+	drained := false
 	f.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "docker exec OLD1 touch ") {
+			drained = true
+		}
+		if strings.HasPrefix(command, "cat ") && strings.Contains(command, "/dynamic/onebox.yml") {
+			if !drained {
+				return transport.Result{Stdout: "http:\n  services:\n    previous:\n      loadBalancer:\n        servers:\n          - url: http://172.20.0.5:3000\n"}, true
+			}
+			return transport.Result{Stdout: "{}\n"}, true
+		}
 		if result, ok := proxyRuntime(command); ok {
 			return result, true
 		}

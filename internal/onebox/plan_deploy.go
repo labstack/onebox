@@ -56,6 +56,10 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("refresh: %w", err)
 	}
+	proxyAction, err := e.PlanProxy(ctx)
+	if err != nil {
+		return DeployPlan{}, fmt.Errorf("plan proxy: %w", err)
+	}
 	pins, err := e.PinImages(ctx)
 	if err != nil {
 		return DeployPlan{}, fmt.Errorf("pin images: %w", err)
@@ -223,6 +227,7 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		Runner:        s.runner,
 		Operation:     operation, Artifact: artifact, Diff: diff, NoOp: noOp,
 		MigrationBackup: migrationBackup,
+		ProxyAction:     proxyAction,
 	}
 	if err := plan.Seal(); err != nil {
 		return DeployPlan{}, fmt.Errorf("seal executable deployment plan: %w", err)

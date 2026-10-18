@@ -76,6 +76,8 @@ type Options struct {
 	// WorkloadPlans are the sealed per-workload actions approved for this
 	// deployment. An absent entry preserves the historical release behavior.
 	WorkloadPlans map[string]WorkloadPlan
+	// ExpectedProxyAction is the proxy plan line approved for this deployment.
+	ExpectedProxyAction string
 	// UI is the output layer; built from Out+Verbose when unset (cmd shares
 	// one instance so the command log and narrative interleave in order).
 	UI *ui.UI

@@ -445,6 +445,7 @@ func (s *Service) executeDeploy(
 		options.MigrationBackupWasRequired = plan.MigrationBackup != nil
 		options.MigrationBackup = migrationBackupAudit
 		options.WorkloadPlans = engineWorkloadPlans(plan.Operation.Steps)
+		options.ExpectedProxyAction = plan.ProxyAction
 		if request.Approval != nil {
 			options.ApprovalDigest = request.Approval.ApprovalDigest
 			options.ApprovedBy = request.Approval.ApprovedBy

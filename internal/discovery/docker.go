@@ -100,13 +100,17 @@ func (c *Client) inspect(ctx context.Context, id string) (Container, error) {
 		container.Health = raw.State.Health.Status
 	}
 	for name, endpoint := range raw.NetworkSettings.Networks {
-		address := endpoint.IPAddress
-		if net.ParseIP(address) == nil {
-			address = endpoint.GlobalIPv6Address
-		}
-		container.Networks[name] = address
+		container.Networks[name] = EndpointAddress(endpoint.IPAddress, endpoint.GlobalIPv6Address)
 	}
 	return container, nil
+}
+
+// EndpointAddress selects the same network address for discovery and rollout gates.
+func EndpointAddress(ipv4, ipv6 string) string {
+	if net.ParseIP(ipv4) != nil {
+		return ipv4
+	}
+	return ipv6
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, target any) error {

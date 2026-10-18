@@ -162,11 +162,17 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 
 		if len(news) >= desired && len(olds) == 0 {
 			if len(news) == desired {
+				if err := e.admitNewcomers(ctx, roleName, role, news, within, pollEvery); err != nil {
+					return err
+				}
 				break
+			}
+			if err := e.admitNewcomers(ctx, roleName, role, news[:desired], within, pollEvery); err != nil {
+				return err
 			}
 			// surplus new replicas (count reduced) — drain one down to desired
 			update(completed, "retiring surplus replica")
-			if err := e.retireContainer(ctx, role, news[desired], pollEvery); err != nil {
+			if err := e.retireContainer(ctx, roleName, role, news[desired], pollEvery); err != nil {
 				return err
 			}
 			continue
@@ -234,12 +240,23 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 				cleanupErr := e.mutateChecked(ctx, "remove unhealthy newcomer "+newID, "docker rm -f "+newID)
 				return errors.Join(fmt.Errorf("role %s: new container never became healthy: %w", roleName, err), cleanupErr)
 			}
+			if e.routeGated(role) {
+				if err := e.awaitRouting(ctx, roleName, role, newID, true, pollEvery); err != nil {
+					e.logf("join failed for %s — removing new container, existing keep serving", roleName)
+					cleanupErr := e.mutateChecked(ctx, "remove unrouted newcomer "+newID, "docker rm -f "+newID)
+					return errors.Join(fmt.Errorf("role %s: %w", roleName, err), cleanupErr)
+				}
+			}
+			news = append(news, newID)
 		}
 
 		// retire one old, freeing its slot for the newcomer just added
 		if len(olds) > 0 {
+			if err := e.admitNewcomers(ctx, roleName, role, news, within, pollEvery); err != nil {
+				return err
+			}
 			update(completed, "retiring old replica")
-			if err := e.retireContainer(ctx, role, olds[0], pollEvery); err != nil {
+			if err := e.retireContainer(ctx, roleName, role, olds[0], pollEvery); err != nil {
 				return err
 			}
 		}
@@ -257,10 +274,25 @@ func (e *Engine) rollRoleForRelease(ctx context.Context, roleName, remoteCompose
 	return nil
 }
 
+// admitNewcomers checks replacements without removing adopted containers on failure.
+func (e *Engine) admitNewcomers(ctx context.Context, workload string, role app.Workload, ids []string, within, pollEvery time.Duration) error {
+	for _, id := range ids {
+		if err := e.waitHealth(ctx, id, "healthy", within, pollEvery); err != nil {
+			return err
+		}
+		if e.routeGated(role) {
+			if err := e.awaitRouting(ctx, workload, role, id, true, pollEvery); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // retireContainer drains one container out of rotation (poison its health so the
 // proxy drops it BEFORE any signal), waits the drain, optionally bleeds long
 // connections, then stops and removes it.
-func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id string, pollEvery time.Duration) error {
+func (e *Engine) retireContainer(ctx context.Context, workload string, role app.Workload, id string, pollEvery time.Duration) error {
 	e.sleepBusy("converge (proxy observes the newcomer)", e.Opts.ConvergeBuffer)
 
 	// Poisoning health is what takes the container out of rotation before any
@@ -296,6 +328,11 @@ func (e *Engine) retireContainer(ctx context.Context, role app.Workload, id stri
 	drainBudget := time.Duration(probeRetries+2) * probeEvery
 	if err := e.waitHealth(ctx, id, "unhealthy", drainBudget, pollEvery); err != nil {
 		e.warnf("container never reported unhealthy (%v); proceeding after buffer", err)
+	}
+	if e.Spec.Proxy.Managed {
+		if err := e.awaitRouting(ctx, workload, role, id, false, pollEvery); err != nil {
+			return err
+		}
 	}
 	e.sleepBusy("converge (proxy drops the drained container)", e.Opts.ConvergeBuffer)
 

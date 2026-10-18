@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/proxy"
 	"github.com/labstack/onebox/internal/transport"
 )
 
@@ -697,5 +698,36 @@ func TestStatusSnapshotCancellationIsHardError(t *testing.T) {
 	}
 	if len(f.Commands) != 0 {
 		t.Fatalf("pre-cancelled snapshot must not issue reads: %v", f.Commands)
+	}
+}
+
+func TestStatusSnapshotProxyIdentityDrift(t *testing.T) {
+	for _, name := range []string{"equal", "compose", "legacy", "garbage"} {
+		t.Run(name, func(t *testing.T) {
+			applied := ""
+			e, _, _, localHash := statusProxyEngine(t, &applied, "", "healthy")
+			local, _ := proxy.ParseIdentity(localHash)
+			switch name {
+			case "equal":
+				applied = "  " + local.Config + "  " + local.Compose + "  "
+			case "compose":
+				applied = (proxy.Identity{Config: local.Config, Compose: "sha256:" + strings.Repeat("c", 64)}).String()
+			case "legacy":
+				applied = local.Config
+			case "garbage":
+				applied = "deadbeef"
+			}
+			snapshot, err := e.StatusSnapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			px := snapshot.Proxy
+			if px == nil || !px.Complete || px.ConfigDiverged != (name != "equal") || px.Diverged != (name != "equal") {
+				t.Fatalf("proxy identity status = %#v", px)
+			}
+			if px.LocalConfigHash != localHash || px.AppliedConfigHash != strings.TrimSpace(applied) {
+				t.Fatalf("identity fields = %#v", px)
+			}
+		})
 	}
 }

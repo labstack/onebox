@@ -646,3 +646,14 @@ func TestEphemeralServiceCannotDeclareBackup(t *testing.T) {
 		t.Fatalf("refusal does not explain itself: %v", err)
 	}
 }
+
+func TestRenderedServicesCarryStopGrace(t *testing.T) {
+	for _, driver := range []string{"postgres", "redis"} {
+		t.Run(driver, func(t *testing.T) {
+			doc := renderStore(t, "services: {store: {driver: "+driver+", version: '17'}}\n")
+			if !strings.Contains(doc, "stop_grace_period: 2m0s") {
+				t.Fatalf("service has no two-minute shutdown window:\n%s", doc)
+			}
+		})
+	}
+}

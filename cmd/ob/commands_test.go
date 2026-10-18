@@ -17,6 +17,7 @@ import (
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/onebox"
+	"github.com/labstack/onebox/internal/ui"
 )
 
 func TestConfirmDefaultsToNo(t *testing.T) {
@@ -189,5 +190,16 @@ func TestNotifyOutcome(t *testing.T) {
 	notifyOutcome(t.Context(), cfg, g, "deploy", "R1", fmt.Errorf("x"))
 	if hits != 2 {
 		t.Fatal("nil notify must be a no-op")
+	}
+}
+
+func TestRenderDeployPlanShowsProxyAction(t *testing.T) {
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	plan := onebox.DeployPlan{ProxyAction: "restart Traefik (configuration changed)"}
+	renderDeployPlan(cmd, ui.New(&out, false), plan)
+	if !strings.Contains(out.String(), "proxy: restart Traefik (configuration changed)") {
+		t.Fatalf("proxy action missing: %q", out.String())
 	}
 }

@@ -337,6 +337,10 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 		u.Infof("compose unchanged (release labels aside) — but the payload differs (env files / secrets); deploying ships it")
 	}
 
+	if plan.ProxyAction != "" {
+		u.Infof("proxy: %s", plan.ProxyAction)
+	}
+
 	u.Println(u.Bold("operation:"))
 	u.Println(fmt.Sprintf("  risk=%s  reversibility=%s  approval=%s",
 		plan.Operation.Risk, plan.Operation.Reversibility, plan.Operation.Approval))

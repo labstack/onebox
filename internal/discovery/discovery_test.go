@@ -160,3 +160,11 @@ func TestWriteAtomicProducesTraefikYAML(t *testing.T) {
 		t.Fatalf("temporary files remain: %v", matches)
 	}
 }
+
+func TestEndpointAddressPrefersIPv4(t *testing.T) {
+	for _, tc := range []struct{ v4, v6, want string }{{"10.0.0.5", "fd00::5", "10.0.0.5"}, {"", "fd00::5", "fd00::5"}, {"invalid", "fd00::5", "fd00::5"}} {
+		if got := EndpointAddress(tc.v4, tc.v6); got != tc.want {
+			t.Fatalf("EndpointAddress = %q, want %q", got, tc.want)
+		}
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -23,11 +22,11 @@ type proxyRaw struct {
 	ids       []string
 	health    string   // proxy container health, parsed from docker ps .Status
 	discovery bool     // isolated Docker discovery controller is running
-	applied   string   // config hash the host applied
+	applied   string   // config and Compose identity the host applied
 	owner     string   // sole application identity from the host owner record
 	ownerEnv  string   // environment identity from the owner record
 	acme      []string // raw ACME stores; parsed at render, and keys never leave
-	localHash string   // hash of the locally staged config (computed offline)
+	localHash string   // locally staged config and Compose identity (computed offline)
 	// Why a read could not be trusted, when it could not. Recorded rather
 	// than raised: gather returns on the first error and Status renders
 	// nothing after it, so raising costs the operator every other fact about
@@ -173,21 +172,13 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return nil
 		},
 		func() error {
-			// Empty stays empty: joining it with the project directory would
-			// point at the repository root and ask it to be Traefik's config.
-			localCfg := e.Spec.Proxy.Config
-			if localCfg != "" && !filepath.IsAbs(localCfg) {
-				localCfg = filepath.Join(e.Opts.LocalDir, localCfg)
-			}
 			staging, err := os.MkdirTemp("", "onebox-proxy-status")
 			if err != nil {
 				return err
 			}
 			defer os.RemoveAll(staging)
-			px.localHash, err = proxy.StageForAppManaged(localCfg, staging, e.Spec.Proxy.Image,
-				proxy.DiscoveryImage(e.Opts.Runner.Version), e.Spec.Name,
-				e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasExactTerminatingTLS(),
-				e.Spec.HasWildcardTerminatingTLS(), e.Spec.Proxy.DNSChallenge)
+			id, err := e.stageProxy(staging)
+			px.localHash = id.String()
 			return err
 		},
 	}
@@ -291,14 +282,15 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		diverged = true
 	}
 
-	state := fmt.Sprintf("config %.8s %s", px.applied, e.ui.OK("(in sync)"))
+	local, _ := proxy.ParseIdentity(px.localHash)
+	state := fmt.Sprintf("config %s compose %s %s", shortDigest(local.Config), shortDigest(local.Compose), e.ui.OK("(in sync)"))
 	if px.appliedIssue != "" {
 		// Never DRIFTED on an unread file: that names a remedy (`ob proxy
 		// apply`) for a problem it would not fix.
 		state = e.ui.Warn("config UNKNOWN ⚠ — " + px.appliedIssue)
 		diverged = true
-	} else if px.applied != px.localHash {
-		state = e.ui.Warn(fmt.Sprintf("config DRIFTED ⚠ (local %.8s ≠ applied %.8s) — `ob proxy apply`", px.localHash, px.applied))
+	} else if parts := proxyDriftParts(px.applied, local); len(parts) > 0 {
+		state = e.ui.Warn(fmt.Sprintf("DRIFTED ⚠ (%s) — `ob proxy apply`", strings.Join(parts, ", ")))
 		diverged = true
 	}
 	owner := px.owner
@@ -349,4 +341,27 @@ func proxyCertExpiries(stores []string) ([]proxy.CertExpiry, error) {
 		out = append(out, certs...)
 	}
 	return out, nil
+}
+
+func proxyDriftParts(applied string, local proxy.Identity) []string {
+	remote, ok := proxy.ParseIdentity(applied)
+	if _, valid := proxy.ParseIdentity(local.String()); !ok || !valid {
+		return []string{"config", "compose"}
+	}
+	var parts []string
+	if remote.Config != local.Config {
+		parts = append(parts, "config")
+	}
+	if remote.Compose != local.Compose {
+		parts = append(parts, "compose")
+	}
+	return parts
+}
+
+func shortDigest(d string) string {
+	d = strings.TrimPrefix(d, "sha256:")
+	if len(d) > 8 {
+		return d[:8]
+	}
+	return d
 }

@@ -31,15 +31,6 @@ func routedIn(doc discovery.Dynamic, n app.Names, workload string, role app.Work
 	return true
 }
 
-func withdrawnFrom(doc discovery.Dynamic, n app.Names, workload string, role app.Workload, address string) bool {
-	for i, route := range role.NormalisedRoutes() {
-		if routeContains(doc, n.ProxyServiceFor(workload, i), route.Protocol, address) {
-			return false
-		}
-	}
-	return true
-}
-
 // withdrawnFromAll checks every published service, including routes absent from the new role.
 func withdrawnFromAll(doc discovery.Dynamic, address string) bool {
 	if doc.HTTP != nil {

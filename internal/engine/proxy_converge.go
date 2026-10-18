@@ -99,7 +99,7 @@ func (e *Engine) observeProxy(ctx context.Context, rendered []byte) (proxyObserv
 	if err != nil {
 		return o, err
 	}
-	o.TraefikChanged = compose.ExitCode != 0 || traefikDefinitionChanged([]byte(compose.Stdout), rendered)
+	o.TraefikChanged = o.Applied.Compose == pendingReplaceDigest || compose.ExitCode != 0 || traefikDefinitionChanged([]byte(compose.Stdout), rendered)
 	o.ProxyIDs, err = e.proxyContainerIDs(ctx)
 	if err != nil {
 		return o, err

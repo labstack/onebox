@@ -45,18 +45,6 @@ func TestRoutedInMatchesIPv6(t *testing.T) {
 	}
 }
 
-func TestWithdrawnFromEveryService(t *testing.T) {
-	role := app.Workload{Routes: []app.Route{{Port: 3000}, {Protocol: "tcp", Port: 5432}}}
-	doc := routingDocument(t, "tcp:\n  services:\n    unrelated:\n      loadBalancer:\n        servers:\n          - address: '[fd00::5]:5432'\n")
-	if !withdrawnFrom(doc, app.Names{}, "web", role, "fd00::5") {
-		t.Fatal("unrelated service blocked withdrawal")
-	}
-	doc.TCP.Services["onebox_web_r1"] = doc.TCP.Services["unrelated"]
-	if withdrawnFrom(doc, app.Names{}, "web", role, "fd00::5") {
-		t.Fatal("accepted address still in TCP service")
-	}
-}
-
 func TestRouteGatedOnlyForManagedProxyWithRoutes(t *testing.T) {
 	spec := &app.Resolved{Spec: &app.Spec{}}
 	e := New(spec, nil, &transport.Fake{}, Options{Out: io.Discard})

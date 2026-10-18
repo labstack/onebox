@@ -516,12 +516,16 @@ func TestEnsureProxyMissingOutputForceRecreatesDiscoveryWithoutRestart(t *testin
 func TestEnsureProxyComposePathRejectsStaleOutput(t *testing.T) {
 	f := &transport.Fake{}
 	e, id, _ := proxyFixture(t, f)
+	live := string(testProxyCompose(t, e))
 	staged := id
 	id.Compose = "sha256:" + strings.Repeat("0", 64)
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		if cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'" {
 			return transport.Result{Stdout: id.String()}, true
+		}
+		if strings.HasPrefix(cmd, "cat '/var/lib/onebox/_host/proxy/compose.yaml'") {
+			return transport.Result{Stdout: live}, true
 		}
 		if strings.Contains(cmd, "service=discovery") {
 			name := "D1"
@@ -561,6 +565,7 @@ func testProxyIdentityWrite(id proxy.Identity) string {
 func TestEnsureProxyFailedConvergeRetriesAsConverge(t *testing.T) {
 	f := &transport.Fake{}
 	e, id, _ := proxyFixture(t, f)
+	live := string(testProxyCompose(t, e))
 	applied := id
 	applied.Compose = "sha256:" + strings.Repeat("a", 64)
 	pending := proxy.Identity{Config: applied.Config, Compose: "sha256:" + strings.Repeat("0", 64)}
@@ -571,6 +576,8 @@ func TestEnsureProxyFailedConvergeRetriesAsConverge(t *testing.T) {
 		switch {
 		case cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'":
 			return transport.Result{Stdout: marker}, true
+		case strings.HasPrefix(cmd, "cat '/var/lib/onebox/_host/proxy/compose.yaml'"):
+			return transport.Result{Stdout: live}, true
 		case strings.Contains(cmd, testProxyIdentityWrite(pending)):
 			marker = pending.String()
 			return transport.Result{}, true

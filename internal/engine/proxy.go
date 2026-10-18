@@ -16,7 +16,10 @@ import (
 	"github.com/labstack/onebox/internal/proxy"
 )
 
-const pendingComposeDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+const (
+	pendingComposeDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	pendingReplaceDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+)
 
 // EnsureProxy converges the HOST-scoped managed proxy (design: one Traefik
 // per host, owned by its sole Onebox application). Idempotent and ACME-safe: an
@@ -51,6 +54,23 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return err
 	}
 	defer e.releaseHostLock(ctx)
+	discoveryStopped := false
+	defer func() {
+		if err == nil || !discoveryStopped {
+			return
+		}
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		res, startErr := e.hostMutate(cleanupContext, "docker start "+proxy.DiscoveryContainerName)
+		if startErr == nil && res.ExitCode != 0 {
+			startErr = fmt.Errorf("exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+		}
+		if startErr != nil {
+			e.logf("proxy: discovery not restarted after failed converge: %v", startErr)
+		} else {
+			e.logf("proxy: discovery restarted after failed converge")
+		}
+	}()
 	applied := false
 	defer func() {
 		if err != nil || !applied {
@@ -94,6 +114,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	action := decideProxy(o, id)
 	switch action {
 	case proxyUnchanged:
+		applied = true
 		e.logf("proxy: unchanged and running — not touched")
 		return nil
 	}
@@ -112,7 +133,11 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		e.ui.Diff(diff)
 	}
 	if action == proxyConverge || action == proxyReplace {
-		if err := e.commitProxyIdentity(ctx, proxy.Identity{Config: o.Applied.Config, Compose: pendingComposeDigest}); err != nil {
+		pending := proxy.Identity{Config: o.Applied.Config, Compose: pendingComposeDigest}
+		if action == proxyReplace {
+			pending.Compose = pendingReplaceDigest
+		}
+		if err := e.commitProxyIdentity(ctx, pending); err != nil {
 			return err
 		}
 		composeStaging, err := os.MkdirTemp("", "onebox-proxy-compose")
@@ -171,6 +196,13 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	forceDiscovery := action == proxyApply || len(o.DiscoveryIDs) == 0 || o.OutputInode == ""
 	previousInode := ""
 	if action == proxyConverge || action == proxyReplace {
+		image := q(proxy.DiscoveryImage(e.Opts.Runner.Version))
+		if res, err := e.hostMutate(ctx, "docker image inspect "+image+" >/dev/null 2>&1 || docker pull "+image); err != nil {
+			return err
+		} else if res.ExitCode != 0 {
+			return fmt.Errorf("proxy discovery image: %s", strings.TrimSpace(res.Stderr))
+		}
+		discoveryStopped = true
 		if res, err := e.hostMutate(ctx, compose+" stop discovery"); err != nil {
 			return err
 		} else if res.ExitCode != 0 {

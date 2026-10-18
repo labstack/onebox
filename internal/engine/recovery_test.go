@@ -484,6 +484,156 @@ func TestRecoverySingleReplicaKeepsInterruptedNewcomerServing(t *testing.T) {
 	}
 }
 
+func TestRecoverySurgesWhenOnlyInterruptedNewcomerServes(t *testing.T) {
+	target := happyFake()
+	base := target.Dynamic
+	clock := &virtualClock{}
+	engine := New(testConfig(), testProject(t), target, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(_ context.Context, d time.Duration) error { clock.sleep(d); return nil }})
+	transient := engine.names().TransientContainer("web")
+	names := map[string]string{"NEW1": transient}
+	surged, drained, removed := false, false, false
+	healthyAt, publishedAt := -1, -1
+	target.Dynamic = func(command string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(command, "onebox.snapshot.yml"):
+			snapshot := strings.Replace(engineProject, "  workloads:", "  proxy: {managed: true}\n  workloads:", 1)
+			snapshot = strings.Replace(snapshot, "      role: Application", "      role: Application\n      routes: [{hostname: example.com, port: 7500}]", 1)
+			return transport.Result{Stdout: snapshot}, true
+		case strings.Contains(command, "readlink"):
+			return transport.Result{Stdout: "releases/" + engineTestPreviousReleaseID + "\n"}, true
+		case command == "docker ps -a --format '{{.Names}}'":
+			var occupied []string
+			if !removed {
+				occupied = append(occupied, names["NEW1"])
+			}
+			if surged {
+				occupied = append(occupied, names["RESTORED1"])
+			}
+			return transport.Result{Stdout: strings.Join(occupied, "\n")}, true
+		case strings.Contains(command, "docker ps -a --filter label=onebox.app="):
+			if removed {
+				return transport.Result{}, true
+			}
+			return transport.Result{Stdout: "NEW1|web|" + names["NEW1"] + "|running"}, true
+		case strings.Contains(command, "docker ps --filter label=onebox.app=") && strings.Contains(command, "label=onebox.release="):
+			if surged {
+				return transport.Result{Stdout: "RESTORED1|web"}, true
+			}
+			return transport.Result{}, true // no predecessor replica to undrain or adopt
+		case strings.Contains(command, "docker ps --filter label=onebox.app="):
+			var listing []string
+			if !removed {
+				health := "healthy"
+				if drained {
+					health = "unhealthy"
+				}
+				listing = append(listing, "NEW1|web|"+engineTestDeployReleaseID+"||Up 1 hour ("+health+")")
+			}
+			if surged {
+				listing = append(listing, "RESTORED1|web|"+engineTestPreviousReleaseID+"||Up 1 minute (healthy)")
+			}
+			return transport.Result{Stdout: strings.Join(listing, "\n")}, true
+		case strings.Contains(command, "docker ps -aq") && strings.Contains(command, "label=onebox.app="):
+			if !removed && strings.Contains(command, "label=onebox.release="+q(engineTestDeployReleaseID)) {
+				return transport.Result{Stdout: "NEW1"}, true
+			}
+			if surged && strings.Contains(command, "label=onebox.release="+q(engineTestPreviousReleaseID)) {
+				return transport.Result{Stdout: "RESTORED1"}, true
+			}
+			return transport.Result{}, true
+		case strings.Contains(command, "status=exited"):
+			return transport.Result{}, true
+		case strings.Contains(command, "docker ps ") && strings.Contains(command, "compose.service='web'"):
+			if strings.Contains(command, "onebox.release=") {
+				if surged {
+					return transport.Result{Stdout: "RESTORED1"}, true
+				}
+				return transport.Result{}, true
+			}
+			var ids []string
+			if !removed {
+				ids = append(ids, "NEW1")
+			}
+			if surged {
+				ids = append(ids, "RESTORED1")
+			}
+			return transport.Result{Stdout: strings.Join(ids, "\n")}, true
+		case strings.Contains(command, "--scale web=2 web"):
+			if names["NEW1"] != engine.names().Container("web", 1) {
+				t.Fatal("surge must free the transient name without removing NEW1")
+			}
+			surged = true
+			names["RESTORED1"] = "sample-web-2"
+			return transport.Result{}, true
+		case strings.Contains(command, "docker rename "):
+			fields := strings.Fields(command[strings.Index(command, "docker rename ")+len("docker rename "):])
+			for id, name := range names {
+				if id != fields[0] && name == fields[1] && !(id == "NEW1" && removed) {
+					t.Fatalf("rename collided with serving container %s: %s", id, command)
+				}
+			}
+			names[fields[0]] = fields[1]
+			return transport.Result{}, true
+		case strings.Contains(command, "{{.Name}}"):
+			fields := strings.Fields(command)
+			return transport.Result{Stdout: "/" + names[fields[len(fields)-1]]}, true
+		case strings.Contains(command, "Health.Status") && strings.HasSuffix(command, "RESTORED1"):
+			healthyAt = len(target.Commands) - 1
+			return transport.Result{Stdout: "healthy"}, true
+		case strings.Contains(command, "Health.Status") && strings.HasSuffix(command, "NEW1"):
+			if drained {
+				return transport.Result{Stdout: "unhealthy"}, true
+			}
+			return transport.Result{Stdout: "healthy"}, true
+		case strings.Contains(command, "docker exec NEW1 touch "):
+			if healthyAt < 0 || publishedAt < 0 {
+				t.Fatal("NEW1 drained before the predecessor surge was admitted")
+			}
+			drained = true
+			return transport.Result{}, true
+		case strings.Contains(command, "docker rm -f NEW1"):
+			t.Fatal("serving interrupted replica must be retired by the roll")
+		case strings.Contains(command, "docker rm NEW1"):
+			removed = true
+			return transport.Result{}, true
+		case strings.Contains(command, "IPAddress"):
+			if strings.HasSuffix(command, "'RESTORED1'") || strings.HasSuffix(command, " RESTORED1") {
+				return transport.Result{Stdout: "172.20.0.5 "}, true
+			}
+			return transport.Result{Stdout: "172.20.0.6 "}, true
+		case strings.Contains(command, "/onebox.yml"):
+			body := "http:\n  services:\n    " + engine.names().ProxyServiceFor("web", 0) + ":\n      loadBalancer:\n        servers:\n"
+			if surged {
+				publishedAt = len(target.Commands) - 1
+				body += "          - url: http://172.20.0.5:7500\n"
+			}
+			if !drained {
+				body += "          - url: http://172.20.0.6:7500\n"
+			}
+			return transport.Result{Stdout: body}, true
+		}
+		return base(command)
+	}
+	seedInterruptedRecoveryState(t, engine)
+	err := engine.recoverInterrupted(context.Background(), recoveryRequest{
+		InterruptedID: engineTestDeployReleaseID, PreviousID: engineTestPreviousReleaseID,
+		TerminalState: release.StateAborted, GateCovered: true, Phase: "abort", Journal: recoveryWriter(engine),
+	})
+	commands := strings.Join(target.Commands, "\n")
+	rename := strings.Index(commands, "docker rename NEW1 "+engine.names().Container("web", 1))
+	surge := strings.Index(commands, "--scale web=2 web")
+	transientRename := strings.Index(commands, "docker rename RESTORED1 "+transient)
+	touch := strings.Index(commands, "docker exec NEW1 touch ")
+	stop := strings.Index(commands, fmt.Sprintf("docker stop -t %d NEW1", engine.Spec.Workloads["web"].StopGraceSeconds()))
+	rm := strings.Index(commands, "docker rm NEW1")
+	if err != nil || rename < 0 || surge < rename || transientRename < surge || touch < transientRename || stop < touch || rm < stop || healthyAt < 0 || publishedAt < 0 {
+		t.Fatalf("recovery must surge and admit the predecessor before retiring the only serving replica: %v\n%s", err, commands)
+	}
+	if strings.Count(commands, "--scale web=") != 1 || names["RESTORED1"] != engine.names().Container("web", 1) || !removed {
+		t.Fatalf("recovery must leave one restored replica in slot 1:\n%s", commands)
+	}
+}
+
 func TestRecoveryRollsPredecessorBeforeRemovingServingContainer(t *testing.T) {
 	target := happyFake()
 	base := target.Dynamic

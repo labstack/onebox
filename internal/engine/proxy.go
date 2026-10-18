@@ -16,6 +16,8 @@ import (
 	"github.com/labstack/onebox/internal/proxy"
 )
 
+const pendingComposeDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
 // EnsureProxy converges the HOST-scoped managed proxy (design: one Traefik
 // per host, owned by its sole Onebox application). Idempotent and ACME-safe: an
 // unchanged proxy is never touched; a compose change recreates the container
@@ -49,6 +51,15 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return err
 	}
 	defer e.releaseHostLock(ctx)
+	applied := false
+	defer func() {
+		if err != nil || !applied {
+			return
+		}
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = e.hostMutate(cleanupContext, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true")
+	}()
 	jw := &journal.Writer{T: e.T, Dir: e.names().HostJournalDir(), DeployID: deployID, Operator: journal.DefaultOperator(), GitSHA: e.Opts.GitSHA, ConfigHash: e.Opts.ConfigHash, Runner: &e.Opts.Runner}
 	if err := jw.Append(ctx, journal.Record{Phase: "proxy-apply", Event: "start", Detail: "hash=" + hash}); err != nil {
 		return fmt.Errorf("journal proxy apply start: %w", err)
@@ -65,14 +76,6 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		}
 		e.pruneHostJournal(ctx)
 	}()
-	res, err := e.hostMutate(ctx, "find "+q(hp.Dir)+" -mindepth 1 -maxdepth 1 -type d -name '.staged-*' -exec rm -rf -- {} + 2>/dev/null || true")
-	if err != nil {
-		return fmt.Errorf("clean stale proxy staging: %w", err)
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("clean stale proxy staging: %s", strings.TrimSpace(res.Stderr))
-	}
-
 	acmeJSON := hp.Acme + "/acme.json"
 	prepareDirs := "mkdir -p " + q(hp.Acme) + " " + q(hp.Dynamic) +
 		" && { test -f " + q(acmeJSON) + " || (touch " + q(acmeJSON) + " && chmod 600 " + q(acmeJSON) + "); }" +
@@ -95,7 +98,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return nil
 	}
 
-	res, err = e.T.Run(ctx, "cat "+q(hp.Compose)+" 2>/dev/null || true")
+	res, err := e.T.Run(ctx, "cat "+q(hp.Compose)+" 2>/dev/null || true")
 	if err != nil {
 		return err
 	}
@@ -108,21 +111,29 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		})
 		e.ui.Diff(diff)
 	}
-	if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Hash)); err != nil {
-		return err
-	} else if res.ExitCode != 0 {
-		return fmt.Errorf("invalidate proxy hash: %s", strings.TrimSpace(res.Stderr))
+	if action == proxyConverge {
+		if err := e.commitProxyIdentity(ctx, proxy.Identity{Config: o.Applied.Config, Compose: pendingComposeDigest}); err != nil {
+			return err
+		}
+		composeStaging, err := os.MkdirTemp("", "onebox-proxy-compose")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(composeStaging)
+		if err := os.WriteFile(filepath.Join(composeStaging, "compose.yaml"), rendered, 0o600); err != nil {
+			return err
+		}
+		staging = composeStaging
+	} else {
+		if res, err := e.hostMutate(ctx, "rm -f "+q(hp.Hash)); err != nil {
+			return err
+		} else if res.ExitCode != 0 {
+			return fmt.Errorf("invalidate proxy hash: %s", strings.TrimSpace(res.Stderr))
+		}
 	}
-	// Stage remotely, then swap: the live container bind-mounts ConfigDir,
-	// so it must never see a half-written dir for the (seconds-long) upload
-	// window — only for the instant of the rm+mv. Stale files can't linger
-	// either (upload is additive tar; the swap replaces the whole dir).
+	// Retire the live directories without deleting their contents: Traefik's
+	// bind mounts keep serving them until the restart succeeds.
 	stagedDir := hp.Dir + "/.staged-" + e.hostLockToken
-	defer func() {
-		cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, _ = e.hostMutate(cleanupContext, "rm -rf "+q(stagedDir))
-	}()
 	res, err = e.hostMutate(ctx, "rm -rf "+q(stagedDir))
 	if err != nil {
 		return fmt.Errorf("clear proxy staging: %w", err)
@@ -133,18 +144,17 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	if err := e.T.Upload(ctx, staging, stagedDir); err != nil {
 		return err
 	}
-	swap := "rm -rf " + q(hp.ConfigDir) +
-		" " + q(hp.Dynamic) +
+	swap := "mkdir -p " + q(stagedDir+"/retired") +
+		" && { if [ -d " + q(hp.ConfigDir) + " ]; then mv " + q(hp.ConfigDir) + " " + q(stagedDir+"/retired/config") + "; fi; }" +
+		" && { if [ -d " + q(hp.Dynamic) + " ]; then mv " + q(hp.Dynamic) + " " + q(stagedDir+"/retired/dynamic") + "; fi; }" +
 		" && mv " + q(stagedDir+"/config") + " " + q(hp.ConfigDir) +
 		" && mv " + q(stagedDir+"/dynamic") + " " + q(hp.Dynamic) +
 		" && mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose) +
 		" && chown -R 0:65532 " + q(hp.ConfigDir) + " " + q(hp.Dynamic) +
 		" && find " + q(hp.ConfigDir) + " " + q(hp.Dynamic) + " -type d -exec chmod 750 {} +" +
-		" && find " + q(hp.ConfigDir) + " " + q(hp.Dynamic) + " -type f -exec chmod 640 {} +" +
-		" && rm -rf " + q(stagedDir)
+		" && find " + q(hp.ConfigDir) + " " + q(hp.Dynamic) + " -type f -exec chmod 640 {} +"
 	if action == proxyConverge {
-		swap = "mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose) +
-			" && rm -rf " + q(stagedDir)
+		swap = "mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose)
 	}
 	res, err = e.hostMutate(ctx, swap)
 	if err != nil {
@@ -159,6 +169,22 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	compose := "docker compose -p " + proxy.Project + " -f " + q(hp.Compose)
 	// A config swap replaces discovery's bind-mounted directory inode.
 	forceDiscovery := action == proxyApply || len(o.DiscoveryIDs) == 0 || o.OutputInode == ""
+	previousInode := ""
+	if action == proxyConverge {
+		if res, err := e.hostMutate(ctx, compose+" stop discovery"); err != nil {
+			return err
+		} else if res.ExitCode != 0 {
+			return fmt.Errorf("proxy discovery stop: %s", strings.TrimSpace(res.Stderr))
+		}
+		res, err := e.T.Run(ctx, outputInodeCommand(hp.Dynamic+"/onebox.yml"))
+		if err != nil {
+			return err
+		}
+		if res.ExitCode != 0 {
+			return fmt.Errorf("proxy discovery output: %s", strings.TrimSpace(res.Stderr))
+		}
+		previousInode = strings.TrimSpace(res.Stdout)
+	}
 	discoveryUp := compose + " up -d discovery"
 	if forceDiscovery {
 		discoveryUp = compose + " up -d --force-recreate discovery"
@@ -168,25 +194,8 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	} else if res.ExitCode != 0 {
 		return fmt.Errorf("proxy discovery up: %s", strings.TrimSpace(res.Stderr))
 	}
-	discoveryIDs, err := e.discoveryContainerIDs(ctx)
-	if err != nil {
+	if err := e.waitForPublication(ctx, previousInode); err != nil {
 		return err
-	}
-	discoveryBefore := idSet(o.DiscoveryIDs)
-	discoveryChanged := len(discoveryIDs) != len(o.DiscoveryIDs)
-	for _, discoveryID := range discoveryIDs {
-		if !discoveryBefore[discoveryID] {
-			discoveryChanged = true
-		}
-	}
-	if forceDiscovery || discoveryChanged {
-		previousInode := o.OutputInode
-		if action == proxyApply {
-			previousInode = ""
-		}
-		if err := e.waitForPublication(ctx, previousInode); err != nil {
-			return err
-		}
 	}
 	if res, err := e.hostMutate(ctx, compose+" up -d proxy"); err != nil {
 		return err
@@ -216,6 +225,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	if err := e.commitProxyIdentity(ctx, id); err != nil {
 		return err
 	}
+	applied = true
 	e.logf("proxy: healthy at config %s compose %s", shortDigest(id.Config), shortDigest(id.Compose))
 	return nil
 }

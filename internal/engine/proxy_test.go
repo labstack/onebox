@@ -89,6 +89,9 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 		}
 		if strings.Contains(cmd, "docker ps -q") && strings.Contains(cmd, "project='onebox-proxy'") {
 			if preRunning || upRan() {
+				if strings.Contains(cmd, "service=discovery") {
+					return transport.Result{Stdout: "DISC1\n"}, true
+				}
 				return transport.Result{Stdout: "PX1\n"}, true
 			}
 			return transport.Result{Stdout: ""}, true
@@ -465,19 +468,55 @@ func TestEnsureProxyComposeOnlyChangeSkipsSwapAndRestart(t *testing.T) {
 	if !strings.Contains(seq, "/compose.yaml' '/var/lib/onebox/_host/proxy/compose.yaml'") || !strings.Contains(seq, "i=0;") {
 		t.Fatalf("compose and publication must converge:\n%s", seq)
 	}
-	iMarker := strings.Index(seq, "mv -f '/var/lib/onebox/_host/proxy/config.hash.tmp'")
+	iMarker := strings.LastIndex(seq, "mv -f '/var/lib/onebox/_host/proxy/config.hash.tmp'")
 	if iMarker < 0 || iMarker < strings.LastIndex(seq, "docker inspect") {
 		t.Fatalf("marker precedes health:\n%s", seq)
+	}
+	if iMarker < strings.LastIndex(seq, "i=0;") {
+		t.Fatalf("marker precedes publication:\n%s", seq)
 	}
 }
 
 func TestEnsureProxyMissingOutputForceRecreatesDiscoveryWithoutRestart(t *testing.T) {
-	TestEnsureProxyRepairsMissingDiscoveryOutput(t)
+	f := &transport.Fake{}
+	e, id, _ := proxyFixture(t, f)
+	ps := proxyPS(f, true)
+	inode := ""
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'" {
+			return transport.Result{Stdout: id.String()}, true
+		}
+		if strings.Contains(cmd, "up -d --force-recreate discovery") {
+			inode = "200"
+			return transport.Result{}, true
+		}
+		if cmd == outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml") {
+			return transport.Result{Stdout: inode}, true
+		}
+		if strings.HasPrefix(cmd, "i=0;") {
+			if inode == "" {
+				return transport.Result{ExitCode: 1}, true
+			}
+			return transport.Result{}, true // inode 200 was published
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "missing-output", false); err != nil {
+		t.Fatal(err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	if !strings.Contains(seq, "up -d --force-recreate discovery") || !strings.Contains(seq, "i=0;") {
+		t.Fatalf("missing output must force discovery and wait for publication:\n%s", seq)
+	}
+	if strings.Contains(seq, "docker restart") || strings.Contains(seq, "/config' '/var/lib/onebox/_host/proxy/config'") {
+		t.Fatalf("missing output must not swap config or restart Traefik:\n%s", seq)
+	}
 }
 
 func TestEnsureProxyComposePathRejectsStaleOutput(t *testing.T) {
 	f := &transport.Fake{}
 	e, id, _ := proxyFixture(t, f)
+	staged := id
 	id.Compose = "sha256:" + strings.Repeat("0", 64)
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
@@ -504,8 +543,210 @@ func TestEnsureProxyComposePathRejectsStaleOutput(t *testing.T) {
 		t.Fatalf("stale output error: %v", err)
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "rm -f '/var/lib/onebox/_host/proxy/config.hash'") || strings.Contains(seq, "config.hash.tmp") {
-		t.Fatalf("failed converge must invalidate marker:\n%s", seq)
+	iPending := strings.Index(seq, testProxyIdentityWrite(id))
+	iMutation := strings.Index(seq, "rm -rf '/var/lib/onebox/_host/proxy/.staged-")
+	if iPending < 0 || iMutation < 0 || iPending > iMutation ||
+		strings.Contains(seq, "rm -f '/var/lib/onebox/_host/proxy/config.hash'") ||
+		strings.Contains(seq, testProxyIdentityWrite(staged)) {
+		t.Fatalf("failed converge must atomically mark pending before mutation without committing the staged identity:\n%s", seq)
+	}
+}
+
+func testProxyIdentityWrite(id proxy.Identity) string {
+	path := "/var/lib/onebox/_host/proxy/config.hash"
+	return "printf '%s\\n' " + q(id.String()) + " > " + q(path+".tmp") +
+		" && mv -f " + q(path+".tmp") + " " + q(path)
+}
+
+func TestEnsureProxyFailedConvergeRetriesAsConverge(t *testing.T) {
+	f := &transport.Fake{}
+	e, id, _ := proxyFixture(t, f)
+	applied := id
+	applied.Compose = "sha256:" + strings.Repeat("a", 64)
+	pending := proxy.Identity{Config: applied.Config, Compose: "sha256:" + strings.Repeat("0", 64)}
+	marker := applied.String()
+	fail := true
+	ps := proxyPS(f, true)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'":
+			return transport.Result{Stdout: marker}, true
+		case strings.Contains(cmd, testProxyIdentityWrite(pending)):
+			marker = pending.String()
+			return transport.Result{}, true
+		case strings.Contains(cmd, testProxyIdentityWrite(id)):
+			marker = id.String()
+			return transport.Result{}, true
+		case strings.Contains(cmd, "rm -f '/var/lib/onebox/_host/proxy/config.hash'"):
+			marker = ""
+			return transport.Result{}, true
+		}
+		if strings.Contains(cmd, "rm -rf '/var/lib/onebox/_host/proxy/.staged-") && marker != pending.String() {
+			t.Error("converge mutated staging before atomically recording the pending identity")
+		}
+		if strings.Contains(cmd, "up -d discovery") && fail {
+			return transport.Result{ExitCode: 1, Stderr: "cannot start discovery"}, true
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "failed-converge", false); err == nil {
+		t.Fatal("failed discovery up must error")
+	}
+	if marker != pending.String() || strings.Contains(strings.Join(f.Commands, "\n"), testProxyIdentityWrite(id)) {
+		t.Fatalf("failed converge must keep only the pending identity: %q", marker)
+	}
+	beforeRetry := len(f.Commands)
+	fail = false
+	if err := e.EnsureProxy(context.Background(), "retry-converge", false); err != nil {
+		t.Fatal(err)
+	}
+	retry := strings.Join(f.Commands[beforeRetry:], "\n")
+	for _, forbidden := range []string{"docker restart", "/config' '/var/lib/onebox/_host/proxy/config'", "rm -f '/var/lib/onebox/_host/proxy/config.hash'"} {
+		if strings.Contains(retry, forbidden) {
+			t.Fatalf("retry must remain a converge, found %s:\n%s", forbidden, retry)
+		}
+	}
+	if marker != id.String() || !strings.Contains(retry, "i=0;") {
+		t.Fatalf("retry must publish before committing the final identity:\n%s", retry)
+	}
+}
+
+func TestEnsureProxyConvergeStopsDiscoveryBeforeSampling(t *testing.T) {
+	f := &transport.Fake{}
+	e, id, _ := proxyFixture(t, f)
+	id.Compose = "sha256:" + strings.Repeat("a", 64)
+	ps := proxyPS(f, true)
+	stopped, started := false, false
+	inodeCommand := outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml")
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'" {
+			return transport.Result{Stdout: id.String()}, true
+		}
+		if strings.Contains(cmd, " stop discovery") {
+			stopped = true
+			return transport.Result{}, true
+		}
+		if cmd == inodeCommand {
+			if stopped {
+				return transport.Result{Stdout: "101"}, true
+			}
+			return transport.Result{Stdout: "100"}, true
+		}
+		if strings.Contains(cmd, "up -d discovery") {
+			started = true
+			return transport.Result{}, true
+		}
+		if strings.HasPrefix(cmd, "i=0;") {
+			if !stopped || !started || !strings.Contains(cmd, "!= '101'") {
+				t.Fatalf("publication must use the inode sampled with discovery stopped: %s", cmd)
+			}
+			return transport.Result{}, true
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "fresh-publication", false); err != nil {
+		t.Fatal(err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	iStop, iSample, iUp := strings.Index(seq, " stop discovery"), strings.LastIndex(seq, "\n"+inodeCommand+"\n"), strings.Index(seq, " up -d discovery")
+	if iStop < 0 || iSample < iStop || iUp < iSample || !strings.Contains(seq, "i=0;") {
+		t.Fatalf("converge must stop, sample, start and await publication even when the discovery id stays the same:\n%s", seq)
+	}
+}
+
+type proxyUploadObserver struct {
+	*transport.Fake
+	inspect func(string)
+}
+
+func (f *proxyUploadObserver) Upload(ctx context.Context, localDir, remoteDir string) error {
+	f.inspect(localDir)
+	return f.Fake.Upload(ctx, localDir, remoteDir)
+}
+
+func TestEnsureProxyConvergeUploadsOnlyCompose(t *testing.T) {
+	f := &transport.Fake{}
+	e, id, _ := proxyFixture(t, f)
+	id.Compose = "sha256:" + strings.Repeat("a", 64)
+	ps := proxyPS(f, true)
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'" {
+			return transport.Result{Stdout: id.String()}, true
+		}
+		return ps(cmd)
+	}
+	inspected := false
+	e.T = &proxyUploadObserver{Fake: f, inspect: func(dir string) {
+		inspected = true
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 || entries[0].Name() != "compose.yaml" || entries[0].IsDir() {
+			t.Fatalf("converge upload must hold only compose.yaml: %v", entries)
+		}
+	}}
+	if err := e.EnsureProxy(context.Background(), "compose-upload", false); err != nil {
+		t.Fatal(err)
+	}
+	if !inspected {
+		t.Fatal("converge did not upload compose")
+	}
+}
+
+func TestEnsureProxyConfigSwapRetiresLiveDirsInsteadOfDeleting(t *testing.T) {
+	f := &transport.Fake{}
+	e, _, _ := proxyFixture(t, f)
+	f.Dynamic = proxyPS(f, true)
+	if err := e.EnsureProxy(context.Background(), "retire-config", false); err != nil {
+		t.Fatal(err)
+	}
+	staged := strings.SplitN(f.Uploads[0], " -> ", 2)[1]
+	seq := strings.Join(f.Commands, "\n")
+	for _, dir := range []string{"config", "dynamic"} {
+		live := "/var/lib/onebox/_host/proxy/" + dir
+		if strings.Contains(seq, "rm -rf "+q(live)) || !strings.Contains(seq, "mv "+q(live)+" "+q(staged+"/retired/"+dir)) {
+			t.Fatalf("live %s must be retired without deleting its bind-mounted contents:\n%s", dir, seq)
+		}
+	}
+	iCleanup := strings.LastIndex(seq, "-name '.staged-*'")
+	if iCleanup < strings.LastIndex(seq, "docker inspect") || iCleanup < strings.LastIndex(seq, "config.hash.tmp") {
+		t.Fatalf("retired directories must survive until health and the final marker:\n%s", seq)
+	}
+}
+
+func TestEnsureProxyFailedConfigApplyKeepsRetiredDirsUntilRetrySucceeds(t *testing.T) {
+	f := &transport.Fake{}
+	e, _, _ := proxyFixture(t, f)
+	ps := proxyPS(f, true)
+	fail := true
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "docker restart") && fail {
+			return transport.Result{ExitCode: 1, Stderr: "cannot restart"}, true
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "failed-config", false); err == nil {
+		t.Fatal("failed restart must error")
+	}
+	staged := strings.SplitN(f.Uploads[0], " -> ", 2)[1]
+	first := strings.Join(f.Commands, "\n")
+	iSwap := strings.Index(first, "/config' '/var/lib/onebox/_host/proxy/config'")
+	if iSwap < 0 {
+		t.Fatal("config was not swapped")
+	}
+	if strings.Contains(first, "-name '.staged-*'") || strings.Contains(first[iSwap:], "rm -rf "+q(staged)) {
+		t.Fatalf("failed apply must preserve the retired directories:\n%s", first)
+	}
+	beforeRetry := len(f.Commands)
+	fail = false
+	if err := e.EnsureProxy(context.Background(), "retry-config", false); err != nil {
+		t.Fatal(err)
+	}
+	retry := strings.Join(f.Commands[beforeRetry:], "\n")
+	iCleanup := strings.Index(retry, "-name '.staged-*'")
+	if iCleanup < strings.LastIndex(retry, "docker inspect") || iCleanup < strings.LastIndex(retry, "config.hash.tmp") {
+		t.Fatalf("retry must keep retired directories until it succeeds:\n%s", retry)
 	}
 }
 

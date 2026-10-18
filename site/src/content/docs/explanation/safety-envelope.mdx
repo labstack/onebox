@@ -89,8 +89,9 @@ Traefik restarts when its configuration changes and is recreated when its own
 image or ports change. Otherwise, `ob` upgrades and discovery repair do neither.
 The deploy plan's `proxy:` line says which action it will take.
 
-After this upgrade, the first `ob proxy apply` restarts Traefik once; the first
-`ob service apply` recreates each managed service once.
+After upgrading to this release, the first deploy or `ob proxy apply` restarts
+Traefik once. The first `ob service apply` recreates each managed service once,
+and the first deploy does so for PostgreSQL services with declared extensions.
 
 ## What the envelope does not cover
 

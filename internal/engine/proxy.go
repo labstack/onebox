@@ -87,7 +87,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return fmt.Errorf("host proxy dirs: %s", res.Stderr)
 	}
 
-	o, err := e.observeProxy(ctx)
+	o, err := e.observeProxy(ctx, rendered)
 	if err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		})
 		e.ui.Diff(diff)
 	}
-	if action == proxyConverge {
+	if action == proxyConverge || action == proxyReplace {
 		if err := e.commitProxyIdentity(ctx, proxy.Identity{Config: o.Applied.Config, Compose: pendingComposeDigest}); err != nil {
 			return err
 		}
@@ -153,7 +153,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		" && chown -R 0:65532 " + q(hp.ConfigDir) + " " + q(hp.Dynamic) +
 		" && find " + q(hp.ConfigDir) + " " + q(hp.Dynamic) + " -type d -exec chmod 750 {} +" +
 		" && find " + q(hp.ConfigDir) + " " + q(hp.Dynamic) + " -type f -exec chmod 640 {} +"
-	if action == proxyConverge {
+	if action == proxyConverge || action == proxyReplace {
 		swap = "mv -f " + q(stagedDir+"/compose.yaml") + " " + q(hp.Compose)
 	}
 	res, err = e.hostMutate(ctx, swap)
@@ -170,7 +170,7 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	// A config swap replaces discovery's bind-mounted directory inode.
 	forceDiscovery := action == proxyApply || len(o.DiscoveryIDs) == 0 || o.OutputInode == ""
 	previousInode := ""
-	if action == proxyConverge {
+	if action == proxyConverge || action == proxyReplace {
 		if res, err := e.hostMutate(ctx, compose+" stop discovery"); err != nil {
 			return err
 		} else if res.ExitCode != 0 {

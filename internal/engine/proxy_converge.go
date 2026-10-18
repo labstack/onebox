@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/labstack/onebox/internal/proxy"
 )
@@ -15,6 +18,7 @@ type proxyObservation struct {
 	AppliedKnown           bool
 	ProxyIDs, DiscoveryIDs []string
 	OutputInode            string
+	TraefikChanged         bool
 }
 
 type proxyAction int
@@ -22,6 +26,7 @@ type proxyAction int
 const (
 	proxyUnchanged proxyAction = iota
 	proxyConverge
+	proxyReplace
 	proxyApply
 )
 
@@ -30,6 +35,9 @@ func decideProxy(o proxyObservation, staged proxy.Identity) proxyAction {
 		return proxyApply
 	}
 	if o.Applied.Compose != staged.Compose || len(o.ProxyIDs) == 0 || len(o.DiscoveryIDs) == 0 || o.OutputInode == "" {
+		if o.TraefikChanged {
+			return proxyReplace
+		}
 		return proxyConverge
 	}
 	return proxyUnchanged
@@ -41,6 +49,8 @@ func (a proxyAction) String() string {
 		return "unchanged"
 	case proxyConverge:
 		return "update changed containers only, no restart"
+	case proxyReplace:
+		return "recreate Traefik (its container definition changed)"
 	case proxyApply:
 		return "restart Traefik (configuration changed)"
 	default:
@@ -60,7 +70,22 @@ func (e *Engine) stageProxy(dir string) (proxy.Identity, error) {
 		e.Spec.HasWildcardTerminatingTLS(), e.Spec.Proxy.DNSChallenge)
 }
 
-func (e *Engine) observeProxy(ctx context.Context) (proxyObservation, error) {
+func traefikDefinitionChanged(live, rendered []byte) bool {
+	if len(strings.TrimSpace(string(live))) == 0 {
+		return true
+	}
+	var before, after struct {
+		Services map[string]any
+		Networks any
+	}
+	if yaml.Unmarshal(live, &before) != nil || yaml.Unmarshal(rendered, &after) != nil {
+		return true
+	}
+	return !reflect.DeepEqual(before.Services["proxy"], after.Services["proxy"]) ||
+		!reflect.DeepEqual(before.Networks, after.Networks)
+}
+
+func (e *Engine) observeProxy(ctx context.Context, rendered []byte) (proxyObservation, error) {
 	var o proxyObservation
 	hp := proxy.HostPaths(e.names())
 	marker, err := e.T.Run(ctx, "cat "+q(hp.Hash))
@@ -70,6 +95,11 @@ func (e *Engine) observeProxy(ctx context.Context) (proxyObservation, error) {
 	if marker.ExitCode == 0 {
 		o.Applied, o.AppliedKnown = proxy.ParseIdentity(marker.Stdout)
 	}
+	compose, err := e.T.Run(ctx, "cat "+q(hp.Compose))
+	if err != nil {
+		return o, err
+	}
+	o.TraefikChanged = compose.ExitCode != 0 || traefikDefinitionChanged([]byte(compose.Stdout), rendered)
 	o.ProxyIDs, err = e.proxyContainerIDs(ctx)
 	if err != nil {
 		return o, err
@@ -93,6 +123,13 @@ func outputInodeCommand(path string) string {
 	return "if [ -s " + q(path) + " ]; then stat -c %i " + q(path) + "; fi"
 }
 
+func proxyPlanLine(o proxyObservation, a proxyAction) string {
+	if len(o.ProxyIDs) == 0 {
+		return "start Traefik"
+	}
+	return a.String()
+}
+
 func (e *Engine) PlanProxy(ctx context.Context) (string, error) {
 	if !e.Spec.Proxy.Managed {
 		return "", nil
@@ -106,9 +143,13 @@ func (e *Engine) PlanProxy(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	observed, err := e.observeProxy(ctx)
+	rendered, err := os.ReadFile(filepath.Join(staging, "compose.yaml"))
 	if err != nil {
 		return "", err
 	}
-	return decideProxy(observed, staged).String(), nil
+	observed, err := e.observeProxy(ctx, rendered)
+	if err != nil {
+		return "", err
+	}
+	return proxyPlanLine(observed, decideProxy(observed, staged)), nil
 }

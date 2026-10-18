@@ -70,6 +70,17 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		} else {
 			e.logf("proxy: discovery restarted after failed converge")
 		}
+		if res.ExitCode != 0 && startErr != nil {
+			res, upErr := e.hostMutate(cleanupContext, "docker compose -p "+proxy.Project+" -f "+q(hp.Compose)+" up -d discovery")
+			if upErr == nil && res.ExitCode != 0 {
+				upErr = fmt.Errorf("exit %d: %s", res.ExitCode, strings.TrimSpace(res.Stderr))
+			}
+			if upErr != nil {
+				e.logf("proxy: discovery not recreated after failed converge: %v", upErr)
+			} else {
+				e.logf("proxy: discovery recreated after failed converge")
+			}
+		}
 	}()
 	applied := false
 	defer func() {
@@ -96,6 +107,23 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		}
 		e.pruneHostJournal(ctx)
 	}()
+	o, err := e.observeProxy(ctx, rendered)
+	if err != nil {
+		return err
+	}
+	action := decideProxy(o, id)
+	if expected := e.Opts.ExpectedProxyAction; expected != "" {
+		if current := proxyPlanLine(o, action); current != expected {
+			return fmt.Errorf("proxy action changed since plan: planned %q, current %q — re-plan", expected, current)
+		}
+	}
+	cleanupUploads := "find " + q(hp.Dir) + " -mindepth 1 -maxdepth 1 -type d -name " + q(".staged-*") +
+		" ! -exec test -d " + q("{}/retired") + " \\; -exec rm -rf -- {} + 2>/dev/null || true"
+	if res, err := e.hostMutate(ctx, cleanupUploads); err != nil {
+		return fmt.Errorf("clean stale proxy uploads: %w", err)
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("clean stale proxy uploads: %s", strings.TrimSpace(res.Stderr))
+	}
 	acmeJSON := hp.Acme + "/acme.json"
 	prepareDirs := "mkdir -p " + q(hp.Acme) + " " + q(hp.Dynamic) +
 		" && { test -f " + q(acmeJSON) + " || (touch " + q(acmeJSON) + " && chmod 600 " + q(acmeJSON) + "); }" +
@@ -107,11 +135,6 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 		return fmt.Errorf("host proxy dirs: %s", res.Stderr)
 	}
 
-	o, err := e.observeProxy(ctx, rendered)
-	if err != nil {
-		return err
-	}
-	action := decideProxy(o, id)
 	switch action {
 	case proxyUnchanged:
 		applied = true
@@ -195,13 +218,13 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	// A config swap replaces discovery's bind-mounted directory inode.
 	forceDiscovery := action == proxyApply || len(o.DiscoveryIDs) == 0 || o.OutputInode == ""
 	previousInode := ""
+	image := q(proxy.DiscoveryImage(e.Opts.Runner.Version))
+	if res, err := e.hostMutate(ctx, "docker image inspect "+image+" >/dev/null 2>&1 || docker pull "+image); err != nil {
+		return err
+	} else if res.ExitCode != 0 {
+		return fmt.Errorf("proxy discovery image: %s", strings.TrimSpace(res.Stderr))
+	}
 	if action == proxyConverge || action == proxyReplace {
-		image := q(proxy.DiscoveryImage(e.Opts.Runner.Version))
-		if res, err := e.hostMutate(ctx, "docker image inspect "+image+" >/dev/null 2>&1 || docker pull "+image); err != nil {
-			return err
-		} else if res.ExitCode != 0 {
-			return fmt.Errorf("proxy discovery image: %s", strings.TrimSpace(res.Stderr))
-		}
 		discoveryStopped = true
 		if res, err := e.hostMutate(ctx, compose+" stop discovery"); err != nil {
 			return err
@@ -220,6 +243,9 @@ func (e *Engine) EnsureProxy(ctx context.Context, deployID string, breakLock boo
 	discoveryUp := compose + " up -d discovery"
 	if forceDiscovery {
 		discoveryUp = compose + " up -d --force-recreate discovery"
+	}
+	if action == proxyApply {
+		discoveryStopped = true
 	}
 	if res, err := e.hostMutate(ctx, discoveryUp); err != nil {
 		return err

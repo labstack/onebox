@@ -84,6 +84,10 @@ func proxyPS(f *transport.Fake, preRunning bool) func(string) (transport.Result,
 		return false
 	}
 	return func(cmd string) (transport.Result, bool) {
+		if strings.HasPrefix(cmd, "docker image inspect -f '{{.Id}}'") ||
+			strings.HasPrefix(cmd, "docker inspect -f '{{.Image}}'") && strings.Contains(cmd, "PX1") {
+			return transport.Result{Stdout: "sha256:proxy\n"}, true
+		}
 		if cmd == outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml") {
 			return transport.Result{Stdout: "12\n"}, true
 		}
@@ -204,8 +208,12 @@ func TestEnsureProxyStopsWhenJournalStartFails(t *testing.T) {
 func TestEnsureProxyUnchangedIsNoOp(t *testing.T) {
 	f := &transport.Fake{}
 	e, hash, _ := proxyFixture(t, f)
+	live := string(testProxyCompose(t, e))
 	ps := proxyPS(f, true)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.HasPrefix(cmd, "cat '/var/lib/onebox/_host/proxy/compose.yaml'") {
+			return transport.Result{Stdout: live}, true
+		}
 		if cmd == "rm -f '/var/lib/onebox/_host/proxy/config.hash'" && len(f.Uploads) != 0 {
 			t.Fatal("marker invalidated after upload")
 		}
@@ -727,7 +735,27 @@ func TestEnsureProxyFailedConfigApplyKeepsRetiredDirsUntilRetrySucceeds(t *testi
 	e, _, _ := proxyFixture(t, f)
 	ps := proxyPS(f, true)
 	fail := true
+	dir := t.TempDir()
+	retired := ""
+	filteredCleanups := 0
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "-name '.staged-*'") {
+			if strings.Contains(cmd, "! -exec test -d ") {
+				runProxyStagingCleanup(t, cmd, dir)
+				filteredCleanups++
+				if retired != "" {
+					if _, err := os.Stat(retired); err != nil {
+						t.Fatalf("filtered cleanup removed mounted retired directories: %v", err)
+					}
+				}
+			}
+		}
+		if strings.Contains(cmd, "/retired/config") && retired == "" {
+			retired = filepath.Join(dir, ".staged-"+e.hostLockToken, "retired")
+			if err := os.MkdirAll(retired, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if strings.Contains(cmd, "docker restart") && fail {
 			return transport.Result{ExitCode: 1, Stderr: "cannot restart"}, true
 		}
@@ -742,7 +770,12 @@ func TestEnsureProxyFailedConfigApplyKeepsRetiredDirsUntilRetrySucceeds(t *testi
 	if iSwap < 0 {
 		t.Fatal("config was not swapped")
 	}
-	if strings.Contains(first, "-name '.staged-*'") || strings.Contains(first[iSwap:], "rm -rf "+q(staged)) {
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "-name '.staged-*'") && !strings.Contains(cmd, "! -exec test -d ") {
+			t.Fatalf("failed apply must not fully clean staging: %s", cmd)
+		}
+	}
+	if strings.Contains(first[iSwap:], "rm -rf "+q(staged)) {
 		t.Fatalf("failed apply must preserve the retired directories:\n%s", first)
 	}
 	beforeRetry := len(f.Commands)
@@ -751,9 +784,18 @@ func TestEnsureProxyFailedConfigApplyKeepsRetiredDirsUntilRetrySucceeds(t *testi
 		t.Fatal(err)
 	}
 	retry := strings.Join(f.Commands[beforeRetry:], "\n")
-	iCleanup := strings.Index(retry, "-name '.staged-*'")
+	iCleanup := -1
+	for _, cmd := range f.Commands[beforeRetry:] {
+		if strings.Contains(cmd, "-name '.staged-*'") && !strings.Contains(cmd, "! -exec test -d ") {
+			iCleanup = strings.Index(retry, cmd)
+			break
+		}
+	}
 	if iCleanup < strings.LastIndex(retry, "docker inspect") || iCleanup < strings.LastIndex(retry, "config.hash.tmp") {
 		t.Fatalf("retry must keep retired directories until it succeeds:\n%s", retry)
+	}
+	if filteredCleanups != 2 {
+		t.Fatalf("both runs must clean failed uploads while preserving retired directories: %d", filteredCleanups)
 	}
 }
 

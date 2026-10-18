@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,233 @@ func testProxyCompose(t *testing.T, e *Engine) []byte {
 		t.Fatal(err)
 	}
 	return rendered
+}
+
+func TestEnsureProxyApplyRestoresDiscoveryWhenRecreateFails(t *testing.T) {
+	for _, fallbackFails := range []bool{false, true} {
+		t.Run(fmt.Sprint(fallbackFails), func(t *testing.T) {
+			f := &transport.Fake{}
+			e, _, out := proxyFixture(t, f)
+			ps := proxyPS(f, true)
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				switch {
+				case strings.Contains(cmd, "up -d --force-recreate discovery"):
+					return transport.Result{ExitCode: 1, Stderr: "recreate failed"}, true
+				case strings.Contains(cmd, "docker start onebox-discovery"):
+					return transport.Result{ExitCode: 1, Stderr: "container no longer exists"}, true
+				case strings.Contains(cmd, "up -d discovery"):
+					if fallbackFails {
+						return transport.Result{ExitCode: 1, Stderr: "fallback up failed"}, true
+					}
+					return transport.Result{}, true
+				}
+				return ps(cmd)
+			}
+			err := e.EnsureProxy(context.Background(), "failed-apply", false)
+			seq := strings.Join(f.Commands, "\n")
+			recreate, start, fallback := strings.Index(seq, "up -d --force-recreate discovery"), strings.Index(seq, "docker start onebox-discovery"), strings.LastIndex(seq, "up -d discovery")
+			if err == nil || !strings.Contains(err.Error(), "recreate failed") || recreate < 0 || start < recreate || fallback < start {
+				t.Fatalf("failed recreate must start, then recreate a missing discovery container: %v\n%s", err, seq)
+			}
+			if fallbackFails && (!strings.Contains(out.String(), "fallback up failed") || strings.Contains(err.Error(), "fallback up failed")) {
+				t.Fatalf("fallback failure must be logged without replacing the apply error: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestEnsureProxyApplyPullsDiscoveryBeforeRecreate(t *testing.T) {
+	for _, pullFails := range []bool{false, true} {
+		t.Run(fmt.Sprint(pullFails), func(t *testing.T) {
+			f := &transport.Fake{}
+			e, _, _ := proxyFixture(t, f)
+			e.Opts.Runner.Version = "v1.2.3"
+			image := q(proxy.DiscoveryImage(e.Opts.Runner.Version))
+			ensureImage := "docker image inspect " + image + " >/dev/null 2>&1 || docker pull " + image
+			ps := proxyPS(f, true)
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				if strings.Contains(cmd, ensureImage) {
+					if pullFails {
+						return transport.Result{ExitCode: 1, Stderr: "discovery pull failed"}, true
+					}
+					return transport.Result{}, true
+				}
+				return ps(cmd)
+			}
+			err := e.EnsureProxy(context.Background(), "apply-pull", false)
+			seq := strings.Join(f.Commands, "\n")
+			pull, recreate := strings.Index(seq, ensureImage), strings.Index(seq, "up -d --force-recreate discovery")
+			if pull < 0 {
+				t.Fatalf("apply must make the discovery image available:\n%s", seq)
+			}
+			if pullFails {
+				if err == nil || !strings.Contains(err.Error(), "discovery pull failed") || recreate >= 0 {
+					t.Fatalf("failed pull must precede any recreate: %v\n%s", err, seq)
+				}
+			} else if err != nil || recreate < pull {
+				t.Fatalf("apply must pull before recreating discovery: %v\n%s", err, seq)
+			}
+		})
+	}
+}
+
+func TestEnsureProxyRefusesPlannedActionDrift(t *testing.T) {
+	for _, fresh := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fresh=%v", fresh), func(t *testing.T) {
+			f := &transport.Fake{}
+			e, applied, _ := proxyFixture(t, f)
+			e.Opts.ExpectedProxyAction = "unchanged"
+			rendered := string(testProxyCompose(t, e))
+			applied.Config = "sha256:" + strings.Repeat("a", 64)
+			ps := proxyPS(f, !fresh)
+			observed := false
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				switch cmd {
+				case "cat '/var/lib/onebox/_host/proxy/config.hash'":
+					if fresh {
+						return transport.Result{ExitCode: 1}, true
+					}
+					return transport.Result{Stdout: applied.String()}, true
+				case "cat '/var/lib/onebox/_host/proxy/compose.yaml'":
+					if fresh {
+						return transport.Result{ExitCode: 1}, true
+					}
+					return transport.Result{Stdout: rendered}, true
+				case outputInodeCommand("/var/lib/onebox/_host/proxy/dynamic/onebox.yml"):
+					observed = true
+					if fresh {
+						return transport.Result{}, true
+					}
+					return transport.Result{Stdout: "12"}, true
+				}
+				return ps(cmd)
+			}
+			err := e.EnsureProxy(context.Background(), "proxy-drift", false)
+			current := "restart Traefik (configuration changed)"
+			if fresh {
+				current = "start Traefik"
+			}
+			if err == nil || !observed || !strings.Contains(err.Error(), "unchanged") || !strings.Contains(err.Error(), current) || !strings.Contains(err.Error(), "re-plan") {
+				t.Fatalf("proxy action drift must name both plan lines and re-plan guidance: %v", err)
+			}
+			seq := strings.Join(f.Commands, "\n")
+			for _, forbidden := range []string{"/proxy/acme", "-name '.staged-*'", "config.hash.tmp", "rm -f '/var/lib/onebox/_host/proxy/config.hash'", "docker pull", "up -d", " stop discovery"} {
+				if strings.Contains(seq, forbidden) {
+					t.Fatalf("refused plan mutated the host, found %s:\n%s", forbidden, seq)
+				}
+			}
+			if len(f.Uploads) != 0 {
+				t.Fatalf("refused plan uploaded proxy configuration: %v", f.Uploads)
+			}
+		})
+	}
+}
+
+func TestObserveProxyFlagsRepulledTraefikImage(t *testing.T) {
+	for _, configured := range []string{"", "registry.example.com/traefik:custom"} {
+		for _, state := range []string{"equal", "different", "missing"} {
+			t.Run(configured+"/"+state, func(t *testing.T) {
+				f := &transport.Fake{}
+				e, id, _ := proxyFixture(t, f)
+				e.Spec.Proxy.Image = configured
+				rendered := testProxyCompose(t, e)
+				id.Compose = HashBytes(rendered)
+				image := configured
+				if image == "" {
+					image = proxy.DefaultImage
+				}
+				ps := proxyPS(f, true)
+				inspectedContainer, inspectedImage := false, false
+				f.Dynamic = func(cmd string) (transport.Result, bool) {
+					switch {
+					case cmd == "cat '/var/lib/onebox/_host/proxy/config.hash'":
+						return transport.Result{Stdout: id.String()}, true
+					case cmd == "cat '/var/lib/onebox/_host/proxy/compose.yaml'":
+						return transport.Result{Stdout: string(rendered)}, true
+					case strings.HasPrefix(cmd, "docker inspect -f '{{.Image}}'"):
+						inspectedContainer = true
+						return transport.Result{Stdout: "sha256:running\n"}, true
+					case strings.HasPrefix(cmd, "docker image inspect -f '{{.Id}}'"):
+						inspectedImage = true
+						if !strings.HasSuffix(cmd, q(image)) {
+							t.Fatalf("inspected the wrong configured image: %s", cmd)
+						}
+						if state == "missing" {
+							return transport.Result{ExitCode: 1}, true
+						}
+						digest := "sha256:running\n"
+						if state == "different" {
+							digest = "sha256:repulled\n"
+						}
+						return transport.Result{Stdout: digest}, true
+					}
+					return ps(cmd)
+				}
+				o, err := e.observeProxy(context.Background(), rendered)
+				if err != nil || !inspectedContainer || !inspectedImage || o.TraefikChanged != (state != "equal") {
+					t.Fatalf("repulled image observation = %+v, %v", o, err)
+				}
+				want := proxyUnchanged
+				if state != "equal" {
+					want = proxyReplace
+				}
+				if got := decideProxy(o, id); got != want {
+					t.Fatalf("image drift action = %v, want %v", got, want)
+				}
+			})
+		}
+	}
+}
+
+func runProxyStagingCleanup(t *testing.T, command, dir string) {
+	t.Helper()
+	start := strings.Index(command, "find '/var/lib/onebox/_host/proxy'")
+	if start < 0 {
+		t.Fatalf("no staging cleanup: %s", command)
+	}
+	script, _, ok := strings.Cut(command[start:], "; else echo onebox-host-fenced")
+	if !ok {
+		t.Fatalf("staging cleanup must hold the host lock: %s", command)
+	}
+	script = strings.ReplaceAll(script, q("/var/lib/onebox/_host/proxy"), q(dir))
+	if output, err := exec.CommandContext(t.Context(), "sh", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("staging cleanup: %v\n%s", err, output)
+	}
+}
+
+func TestEnsureProxyRemovesFailedUploadsButKeepsRetired(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{".staged-upload", ".staged-config/retired", "unrelated"} {
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &transport.Fake{}
+	e, _, _ := proxyFixture(t, f)
+	ps := proxyPS(f, true)
+	cleaned := false
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "-name '.staged-*'") {
+			runProxyStagingCleanup(t, cmd, dir)
+			cleaned = true
+			return transport.Result{}, true
+		}
+		if strings.Contains(cmd, "mkdir -p '/var/lib/onebox/_host/proxy/acme'") {
+			return transport.Result{ExitCode: 1, Stderr: "cannot prepare directories"}, true
+		}
+		return ps(cmd)
+	}
+	if err := e.EnsureProxy(context.Background(), "clean-upload", false); err == nil {
+		t.Fatal("failed directory preparation must error")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".staged-upload")); !cleaned || !os.IsNotExist(err) {
+		t.Fatalf("failed upload staging survived cleanup: cleaned=%v err=%v", cleaned, err)
+	}
+	for _, name := range []string{".staged-config/retired", "unrelated"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("startup cleanup removed protected %s: %v", name, err)
+		}
+	}
 }
 
 func TestEnsureProxyFailedReplaceIsPlannedAsReplace(t *testing.T) {
@@ -368,7 +596,7 @@ func TestEnsureProxyReplacementUsesConvergePath(t *testing.T) {
 	iUp := strings.Index(seq, " up -d discovery")
 	iWait := strings.Index(seq, "i=0;")
 	iProxy := strings.Index(seq, " up -d proxy")
-	iHealth := strings.Index(seq, "docker inspect")
+	iHealth := strings.Index(seq, "docker inspect -f '{{if .State.Health}}")
 	iFinal := strings.Index(seq, testProxyIdentityWrite(staged))
 	if !inspected || iPending < 0 || iStop < iPending || iSample < iStop || iUp < iSample || iWait < iUp || iProxy < iWait || iHealth < iProxy || iFinal < iHealth {
 		t.Fatalf("replacement must converge discovery and wait for the new proxy before committing:\n%s", seq)
@@ -415,6 +643,8 @@ func TestObserveProxyIsReadOnly(t *testing.T) {
 	rendered := testProxyCompose(t, e)
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
 		switch {
+		case strings.Contains(cmd, "{{.Image}}") || strings.Contains(cmd, "{{.Id}}"):
+			return transport.Result{Stdout: "sha256:proxy"}, true
 		case cmd == "cat '/var/lib/onebox/_host/proxy/compose.yaml'":
 			return transport.Result{Stdout: string(rendered)}, true
 		case strings.HasPrefix(cmd, "cat "):
@@ -445,7 +675,7 @@ func TestObserveProxyIsReadOnly(t *testing.T) {
 			}
 		}
 	}
-	if len(f.Commands) != 5 || len(f.Uploads) != 0 {
+	if len(f.Commands) != 7 || len(f.Uploads) != 0 {
 		t.Fatalf("commands = %v; uploads = %v", f.Commands, f.Uploads)
 	}
 }
@@ -536,6 +766,8 @@ func TestPlanProxyReportsEachAction(t *testing.T) {
 			}
 			f.Dynamic = func(cmd string) (transport.Result, bool) {
 				switch {
+				case strings.Contains(cmd, "{{.Image}}") || strings.Contains(cmd, "{{.Id}}"):
+					return transport.Result{Stdout: "sha256:proxy"}, true
 				case cmd == "cat '/var/lib/onebox/_host/proxy/compose.yaml'":
 					return transport.Result{Stdout: live}, true
 				case strings.HasPrefix(cmd, "cat "):
@@ -563,7 +795,7 @@ func TestPlanProxyReportsEachAction(t *testing.T) {
 					}
 				}
 			}
-			wantCommands := 5
+			wantCommands := 7
 			if tt.name == "unmanaged" {
 				wantCommands = 0
 			}

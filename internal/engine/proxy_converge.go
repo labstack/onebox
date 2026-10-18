@@ -34,7 +34,7 @@ func decideProxy(o proxyObservation, staged proxy.Identity) proxyAction {
 	if !o.AppliedKnown || o.Applied.Config != staged.Config {
 		return proxyApply
 	}
-	if o.Applied.Compose != staged.Compose || len(o.ProxyIDs) == 0 || len(o.DiscoveryIDs) == 0 || o.OutputInode == "" {
+	if o.TraefikChanged || o.Applied.Compose != staged.Compose || len(o.ProxyIDs) == 0 || len(o.DiscoveryIDs) == 0 || o.OutputInode == "" {
 		if o.TraefikChanged {
 			return proxyReplace
 		}
@@ -103,6 +103,24 @@ func (e *Engine) observeProxy(ctx context.Context, rendered []byte) (proxyObserv
 	o.ProxyIDs, err = e.proxyContainerIDs(ctx)
 	if err != nil {
 		return o, err
+	}
+	if len(o.ProxyIDs) > 0 {
+		image := e.Spec.Proxy.Image
+		if image == "" {
+			image = proxy.DefaultImage
+		}
+		running, err := e.T.Run(ctx, "docker inspect -f '{{.Image}}' "+q(o.ProxyIDs[0]))
+		if err != nil {
+			return o, err
+		}
+		if running.ExitCode != 0 {
+			return o, fmt.Errorf("read proxy image: exit %d: %s", running.ExitCode, strings.TrimSpace(running.Stderr))
+		}
+		local, err := e.T.Run(ctx, "docker image inspect -f '{{.Id}}' "+q(image))
+		if err != nil {
+			return o, err
+		}
+		o.TraefikChanged = o.TraefikChanged || local.ExitCode != 0 || strings.TrimSpace(running.Stdout) != strings.TrimSpace(local.Stdout)
 	}
 	o.DiscoveryIDs, err = e.discoveryContainerIDs(ctx)
 	if err != nil {

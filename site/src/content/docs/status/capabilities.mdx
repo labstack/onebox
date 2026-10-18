@@ -34,7 +34,9 @@ This page is the reconciliation. Three states:
   (`ob job run`).
 - Per-workload reconciliation that retains proven-unchanged healthy workloads,
   health-gated rolling or recreate replacement for changed or uncertain ones,
-  traffic drain, verification, versioned releases, retention, rollback.
+  traffic drain, verification, versioned releases, retention, rollback. With
+  the managed proxy, a roll retires a replica only after its replacement is
+  published, and stops it only after the proxy has dropped it.
 - Locks, fencing, append-only journals, resume, abort, migration gates, status,
   audit, SOPS secrets, supporting services, proxy operations, notifications.
 - A canonical, versioned operation graph and one shared Go service for

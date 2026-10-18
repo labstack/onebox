@@ -275,6 +275,29 @@ decision below amends the section it names.
 - **R11.** The dead `withdrawnFrom` goes. Recovery gains a test for the surge
   case: the predecessor replica is gone and the interrupted newcomer is the
   only healthy container.
+- **R12, discovery recovery on every path (amends R9).** The apply path also
+  pulls the discovery image before force-recreating discovery, and counts as
+  having stopped it. The fallback after a failure is `docker start
+  onebox-discovery`, then `compose up -d discovery` against the live
+  `compose.yaml` when the container no longer exists.
+- **R13, the approved proxy action is binding (amends §4).** Executing a
+  sealed deploy plan recomputes the proxy plan line before the proxy step
+  and refuses, as drift, when it differs from the plan's `proxy:` line.
+  Paths without a plan (`ob proxy apply`, bootstrap, resume) do not check.
+- **R14, a re-pulled Traefik image counts as a definition change.** When
+  Traefik is running, the observation compares its container's image ID
+  with the local image ID for the configured tag; a difference, or a tag
+  absent locally, sets `TraefikChanged`.
+- **R15, failed uploads do not accumulate.** At the start of a run, staged
+  directories with no `retired/` inside are removed; those with retired
+  configuration stay until an apply succeeds.
+- **R16.** A roll admits each newcomer once per roll invocation instead of on
+  every pass. **R17.** Routing errors name the discovery container through
+  `proxy.DiscoveryContainerName`.
+- **Kept by design after the second code review:** a drain that never takes
+  effect fails the roll instead of stopping a routed replica (§3 Gate B); the
+  slot search in recovery stays, since a placeholder name would add a host
+  object name.
 - **Accepted:** after a failed proxy apply, a roll that skips the proxy step
   (`ob secrets push`, recovery) can read a routing document Traefik is not
   serving. Run `ob proxy apply` first; `ob status` shows the proxy as

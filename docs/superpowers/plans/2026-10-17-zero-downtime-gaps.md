@@ -591,3 +591,31 @@ func TestRecoverySurgesWhenOnlyInterruptedNewcomerServes(t *testing.T) // replic
 
 - [ ] **Gate:** `go build ./... && go vet ./... && go test -p 2 ./...`; `golangci-lint run ./...` 0 issues.
 - [ ] **Commit** `fix(proxy): never leave discovery stopped and keep a failed replace labelled`
+
+### Task 18: Code review round (spec §6 R12-R17)
+
+**Files:** `internal/engine/proxy.go`, `internal/engine/proxy_converge.go`, `internal/engine/roll.go`, `internal/engine/routing.go`, the deploy execution path that sets engine options from a sealed plan (`internal/onebox/execute.go`, beside `options.WorkloadPlans`), and their tests
+
+**Interfaces:**
+- R12: the apply path runs the same `docker image inspect <image> >/dev/null 2>&1 || docker pull <image>` before `up -d --force-recreate discovery` and sets `discoveryStopped = true` before it. The deferred fallback runs `docker start onebox-discovery`; when that exits non-zero, `docker compose -p onebox-proxy -f <live compose.yaml> up -d discovery`. Both best effort, logged.
+- R13: engine option `ExpectedProxyAction string`; set from `plan.ProxyAction` when executing a sealed deploy plan. When non-empty, `EnsureProxy` computes `proxyPlanLine(o, action)` after `observeProxy` and returns a drift error naming both lines when they differ, before any mutation.
+- R14: in `observeProxy`, when `len(ProxyIDs) > 0`: `docker inspect -f '{{.Image}}' <proxy id>` versus `docker image inspect -f '{{.Id}}' <configured image>` (the image `RenderComposeForApp` uses); differ or tag missing → `TraefikChanged = true`.
+- R15: before observing, remove `.staged-*` directories that contain no `retired/`.
+- R16: `rollRoleForRelease` keeps an `admitted map[string]bool`; `admitNewcomers` skips ids already admitted in this invocation and records the ones it admits.
+- R17: routing error text uses `proxy.DiscoveryContainerName`.
+
+- [ ] **Tests:**
+
+```go
+func TestEnsureProxyApplyRestoresDiscoveryWhenRecreateFails(t *testing.T) // force-recreate fails, "docker start" exits 1: "compose … up -d discovery" fallback runs
+func TestEnsureProxyApplyPullsDiscoveryBeforeRecreate(t *testing.T)
+func TestEnsureProxyRefusesPlannedActionDrift(t *testing.T)             // ExpectedProxyAction "unchanged", observation says restart: error, no mutation after observe
+func TestObserveProxyFlagsRepulledTraefikImage(t *testing.T)            // container image ID ≠ tag ID → TraefikChanged; equal → false (definition otherwise equal)
+func TestEnsureProxyRemovesFailedUploadsButKeepsRetired(t *testing.T)
+func TestRollAdmitsEachNewcomerOnce(t *testing.T)                       // replicas: 3: each newcomer's health inspect for admission runs once
+```
+
+Plus one execution-path test that a sealed plan's `ProxyAction` reaches `ExpectedProxyAction`.
+
+- [ ] **Gate:** `go build ./... && go vet ./... && go test -p 2 ./...`; `golangci-lint run ./...` 0 issues.
+- [ ] **Commit(s)**: `fix(proxy): restore discovery on every path and bind the planned proxy action`, `perf(rolling): admit each newcomer once`.

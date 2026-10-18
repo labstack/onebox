@@ -140,18 +140,15 @@ func rollFake() *transport.Fake {
 
 func noSleep(time.Duration) {}
 
-func TestRollAdmitsEachNewcomerOnce(t *testing.T) {
+func TestRollStopsWhenAdmittedNewcomerFailsLater(t *testing.T) {
 	f := replicaFake(3, []string{"OLD1", "OLD2", "OLD3"}, map[string]string{
 		"OLD1": "sample-web-1", "OLD2": "sample-web-2", "OLD3": "sample-web-3",
 	}, false)
 	base := f.Dynamic
-	inspections := map[string]int{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "Health.Status") {
-			fields := strings.Fields(cmd)
-			if id := fields[len(fields)-1]; strings.HasPrefix(id, "NEW") {
-				inspections[id]++
-			}
+		if strings.Contains(cmd, "Health.Status") && strings.HasSuffix(cmd, "NEW1") &&
+			strings.Contains(strings.Join(f.Commands, "\n"), "docker rm OLD1") {
+			return transport.Result{Stdout: "unhealthy"}, true
 		}
 		return base(cmd)
 	}
@@ -159,16 +156,56 @@ func TestRollAdmitsEachNewcomerOnce(t *testing.T) {
 	role := cfg.Workloads["web"]
 	role.Replicas = 3
 	cfg.Workloads["web"] = role
-	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	for pass := range 2 {
-		inspections = map[string]int{}
-		if err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml"); err != nil {
-			t.Fatal(err)
-		}
-		for _, id := range []string{"NEW1", "NEW2", "NEW3"} {
-			if inspections[id] != 1 {
-				t.Errorf("pass %d: %s admitted %d times, want once", pass, id, inspections[id])
+	clock := &virtualClock{}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml")
+	commands := strings.Join(f.Commands, "\n")
+	if err == nil || !strings.Contains(err.Error(), "NEW1") || !strings.Contains(commands, "docker rm OLD1") {
+		t.Fatalf("roll must reject a previously admitted newcomer that failed under load: %v\n%s", err, commands)
+	}
+	for _, cmd := range f.Commands {
+		for _, id := range []string{"OLD2", "OLD3"} {
+			if strings.Contains(cmd, id) && (strings.Contains(cmd, "docker exec") || strings.Contains(cmd, "docker stop") || strings.Contains(cmd, "docker rm")) {
+				t.Fatalf("unhealthy newcomer must leave old replicas serving: %s", cmd)
 			}
+		}
+	}
+	if strings.Contains(commands, "docker rm -f NEW1") {
+		t.Fatalf("failed re-admission must not remove an adopted newcomer:\n%s", commands)
+	}
+}
+
+func TestRollKeepsLastHealthyOldWhenNewcomersFail(t *testing.T) {
+	f := replicaFake(2, []string{"OLD1", "OLD2", "OLD3"}, map[string]string{
+		"OLD1": "sample-web-1", "OLD2": "sample-web-2", "OLD3": "sample-web-3",
+	}, false)
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "Health.Status") && (strings.HasSuffix(cmd, "NEW1") || strings.HasSuffix(cmd, "NEW2")) &&
+			strings.Contains(strings.Join(f.Commands, "\n"), "docker rm OLD2") {
+			return transport.Result{Stdout: "unhealthy"}, true
+		}
+		return base(cmd)
+	}
+	cfg := testConfig()
+	role := cfg.Workloads["web"]
+	role.Replicas = 2
+	cfg.Workloads["web"] = role
+	clock := &virtualClock{}
+	e := New(cfg, testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: clock.sleep, Now: clock.now, Wait: func(ctx context.Context, d time.Duration) error { clock.sleep(d); return ctx.Err() }})
+	err := e.RollRole(context.Background(), "web", "/var/lib/onebox/app/releases/R1/compose.yaml")
+	commands := strings.Join(f.Commands, "\n")
+	if err == nil || !strings.Contains(err.Error(), "NEW1") || !strings.Contains(commands, "docker rm OLD2") {
+		t.Fatalf("reduced-count roll must reject failed newcomers before its last retirement: %v\n%s", err, commands)
+	}
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "OLD3") && (strings.Contains(cmd, "docker exec") || strings.Contains(cmd, "docker stop") || strings.Contains(cmd, "docker rm")) {
+			t.Fatalf("last healthy old replica must keep serving: %s", cmd)
+		}
+	}
+	for _, id := range []string{"NEW1", "NEW2"} {
+		if strings.Contains(commands, "docker rm -f "+id) {
+			t.Fatalf("failed re-admission must not remove adopted newcomers:\n%s", commands)
 		}
 	}
 }

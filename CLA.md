@@ -1,12 +1,13 @@
-# Onebox Contributor License Agreement
+# LabStack Contributor License Agreement
 
-Thank you for your interest in contributing to Onebox, a project of LabStack
-LLC ("LabStack", "we", "us").
+Thank you for your interest in contributing to a project of LabStack LLC
+("LabStack", "we", "us"), such as Driga, Fanout, or Onebox.
 
 This Contributor License Agreement ("Agreement") documents the rights granted
 by contributors to LabStack. It applies to any Contribution you submit to any
 project owned or managed by LabStack. Signing it is a one-time step; it covers
-all of your future Contributions to Onebox unless you notify us otherwise.
+all of your future Contributions to LabStack projects unless you notify us
+otherwise.
 
 **You keep the copyright in your Contribution.** This Agreement is a license,
 not an assignment. You may continue to use your Contribution however you wish,
@@ -63,12 +64,12 @@ terms, including licenses other than the Apache License, Version 2.0, and to
 distribute Your Contribution as part of proprietary or commercially licensed
 offerings.
 
-This clause exists so that Onebox can offer a commercially licensed edition
-without needing to locate and re-negotiate with every past contributor. It does
-not restrict Your own use of Your Contribution, and it does not withdraw any
-release already made under an open source license: every version of Onebox
-published under the Apache License, Version 2.0, remains available under that
-license permanently.
+This clause exists so that a LabStack project can offer a commercially
+licensed edition without needing to locate and re-negotiate with every past
+contributor. It does not restrict Your own use of Your Contribution, and it
+does not withdraw any release already made under an open source license: every
+version of a LabStack project published under the Apache License, Version 2.0,
+remains available under that license permanently.
 
 ## 5. Your representations
 
@@ -102,8 +103,13 @@ aware that would make these representations inaccurate in any respect.
 ## How to sign
 
 Open a pull request. An automated check will ask you to accept this Agreement
-by leaving a comment on the pull request; the check records your acceptance
-against your account, and future pull requests will not ask again.
+by commenting on the pull request with:
+
+> I have read the CLA Document and I hereby sign the CLA
+
+The check records your acceptance against your account, and future pull
+requests to that repository will not ask again. The Agreement covers every
+LabStack project, but each repository's check may ask once.
 
 If you are contributing on behalf of a legal entity that requires a
 countersigned document, email <opensource@labstack.com> before opening the pull

@@ -557,7 +557,7 @@
   {
     "case": "corpus/ext-immich-sourced.yml",
     "loads": true,
-    "digest": "unparseable:compose parse: validating compose.yaml: services.immich-server additional properties 'published_ports' not allowed"
+    "digest": "unparseable:compose parse: validating compose.yaml: services.immich-server.published_ports false schema"
   },
   {
     "case": "corpus/ext-immich.yml",

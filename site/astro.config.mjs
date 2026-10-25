@@ -29,12 +29,6 @@ export default defineConfig({
       titleDelimiter: "·",
       description:
         "Production operations for an application intentionally running on one server.",
-      // The project tagline, in the same words as the GitHub description and the
-      // landing page's title. Starlight renders this only on a splash page that
-      // does not supply its own hero tagline; index.mdx supplies one, so today
-      // this has no output. It is kept in step anyway, because the day a second
-      // splash page exists is not the day to discover the tagline drifted.
-      tagline: "Plan-before-apply deploys. Zero downtime. One box.",
       social: [
         {
           icon: "github",

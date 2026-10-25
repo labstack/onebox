@@ -10,6 +10,16 @@ import (
 	"testing"
 )
 
+// A wal-push that stalls without failing must not hold the archiver forever:
+// postgres has no limit of its own, and a hang never raises failed_count.
+func TestWalgArchiveCommandBoundsEachPush(t *testing.T) {
+	got := WalgArchiveCommand()
+	want := "timeout -k 10 120 " + WalgBinary + " wal-push %p"
+	if got != want {
+		t.Fatalf("archive command = %q, want %q", got, want)
+	}
+}
+
 // Retention has two floors and the larger one wins. A frequent schedule under a
 // long window needs far more generations than the declared minimum, and keeping
 // only the minimum silently shortens the window the policy promised.

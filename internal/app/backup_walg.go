@@ -80,7 +80,24 @@ func WalgPrefix(target BackupTarget, app, service, generation string) string {
 // recovery window continuous instead of quietly gapped, and it is why archiving
 // is worth alerting on — an unreachable repository eventually fills the volume
 // rather than losing history silently.
-func WalgArchiveCommand() string { return WalgBinary + " wal-push %p" }
+//
+// Each push is bounded. PostgreSQL waits on the command with no limit of its
+// own, so an upload that stalls without failing stops archiving for good while
+// failed_count stays 0. Killing it turns the stall into a failure postgres
+// retries. A retry of a segment that did land is safe: with
+// WALG_PREVENT_WAL_OVERWRITE wal-g decrypts and decompresses the stored copy,
+// compares it with the local segment, and skips it when equal.
+func WalgArchiveCommand() string {
+	return "timeout -k " + walPushKillGrace + " " + walPushTimeout + " " + WalgBinary + " wal-push %p"
+}
+
+// walPushTimeout leaves room for a 16 MiB segment on a link of about 1 Mbit/s,
+// while keeping one stall well inside the usual five-minute recovery target.
+// walPushKillGrace is how long wal-g gets to exit on SIGTERM before SIGKILL.
+const (
+	walPushTimeout   = "120"
+	walPushKillGrace = "10"
+)
 
 // WalgEnvironment is the non-secret configuration a protected service runs
 // with. Every value here is derived from the project and safe to read: the

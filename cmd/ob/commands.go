@@ -581,6 +581,10 @@ func sortedNames[V any](m map[string]V) []string {
 	return out
 }
 
+func renderDeployNoOp(u *ui.UI, currentRelease string) {
+	u.Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", currentRelease)
+}
+
 func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteRequest, verb string) error {
 	cfg, err := notificationConfig(g)
 	if err != nil {
@@ -599,7 +603,7 @@ func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteReque
 	}
 	result, err := operationsService(cmd, g).Execute(cmd.Context(), request)
 	if err == nil && result.NoOp && request.Kind == onebox.KindDeploy && structured == nil {
-		newUI(cmd, g).Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", request.Plan.Artifact.HostState.CurrentRelease)
+		renderDeployNoOp(newUI(cmd, g), request.Plan.Artifact.HostState.CurrentRelease)
 	}
 	notifyOperationOutcome(cmd.Context(), cfg, g, verb, result, err)
 	if structured != nil {
@@ -790,7 +794,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 		NoRollback: g.NoRollback, Redeploy: redeploy,
 	})
 	if err == nil && result.NoOp {
-		pl.ui.Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", pl.plan.Artifact.HostState.CurrentRelease)
+		renderDeployNoOp(pl.ui, pl.plan.Artifact.HostState.CurrentRelease)
 		return nil
 	}
 	notifyOperationOutcome(cmd.Context(), pl.cfg, g, "deploy", result, err)

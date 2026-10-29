@@ -341,7 +341,11 @@ func renderDeployPlan(cmd *cobra.Command, u *ui.UI, plan onebox.DeployPlan) {
 		u.Infof("proxy: %s", plan.ProxyAction)
 	}
 
-	u.Println(u.Bold("operation:"))
+	if plan.NoOp {
+		u.Println(u.Bold("operation (with --redeploy only):"))
+	} else {
+		u.Println(u.Bold("operation:"))
+	}
 	u.Println(fmt.Sprintf("  risk=%s  reversibility=%s  approval=%s",
 		plan.Operation.Risk, plan.Operation.Reversibility, plan.Operation.Approval))
 	for _, step := range plan.Operation.Steps {
@@ -594,6 +598,9 @@ func runMutation(cmd *cobra.Command, g *globalFlags, request onebox.ExecuteReque
 		}
 	}
 	result, err := operationsService(cmd, g).Execute(cmd.Context(), request)
+	if err == nil && result.NoOp && request.Kind == onebox.KindDeploy && structured == nil {
+		newUI(cmd, g).Successf("nothing to deploy — %s is current (`--redeploy` forces a fresh roll)", request.Plan.Artifact.HostState.CurrentRelease)
+	}
 	notifyOperationOutcome(cmd.Context(), cfg, g, verb, result, err)
 	if structured != nil {
 		if outputErr := structured.finish(&result, err); outputErr != nil {

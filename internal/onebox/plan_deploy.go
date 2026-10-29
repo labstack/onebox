@@ -180,6 +180,18 @@ func (s *Service) PlanDeploy(ctx context.Context, _ PlanDeployRequest) (DeployPl
 		release.PathsFor(e.Names()).Releases+"/"+releaseID+"/compose.yaml",
 		workloadPlans,
 	)
+	if noOp {
+		// The sealed graph authorizes a fresh roll with --redeploy. Ordinary
+		// execution takes the no-op branch, so show both branches in the bound
+		// command list rather than presenting that roll as unconditional.
+		for index := range commands {
+			commands[index] = "  " + commands[index]
+		}
+		commands = append([]string{
+			fmt.Sprintf("without --redeploy: no changes — %s remains current", hostState.CurrentRelease),
+			"with --redeploy only:",
+		}, commands...)
+	}
 	artifact := engine.Artifact{
 		ID: releaseID, App: lp.resolved.Name, Env: s.environment, CreatedAt: now,
 		GitSHA: gitSHA, ConfigHash: configDigest, HostState: hostState,

@@ -12,7 +12,7 @@ body:
 
         [`docs/product.md`](https://github.com/labstack/onebox/blob/main/docs/product.md)
         records the direction, and
-        [`/status/capabilities`](https://onebox.run/status/capabilities) records
+        [`/docs/reference/capabilities`](https://onebox.run/docs/reference/capabilities) records
         what the binary does today versus what the schema merely accepts.
 
   - type: textarea

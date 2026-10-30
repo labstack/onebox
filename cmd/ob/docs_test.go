@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/pflag"
 )
 
-const cliReferencePage = "site/src/content/docs/reference/cli.mdx"
+const cliReferencePage = "site/src/content/docs/docs/reference/cli.mdx"
 
-const policiesPage = "site/src/content/docs/reference/policies.mdx"
+const policiesPage = "site/src/content/docs/docs/reference/policies.mdx"
 
 // readDocsPage reads a documentation page from the site. The remediation hint
 // belongs at the call site: only some of these pages are generated, and telling

@@ -14,7 +14,7 @@ labels are all derived from it.
 
 ## Why the runtime is not yours to hand over
 
-Under the [ownership boundary](/explanation/ownership-boundary), Onebox owns the
+Under the [ownership boundary](/docs/concepts/ownership-boundary), Onebox owns the
 runtime. Reading a runtime you wrote inverts that: you own it, and Onebox merely
 operates something it did not design and cannot fully reason about.
 
@@ -92,7 +92,7 @@ workloads:
 
 Refusals apply only where the referenced service contradicts something Onebox
 owns — `extends`, a fixed `container_name`, `network_mode`, labels in the `onebox.`
-or `traefik.` namespaces. See [Adopt an existing Compose file](/guides/adopt-compose).
+or `traefik.` namespaces. See [Adopt an existing Compose file](/docs/guides/compose).
 
 The result is a contract that generates by default and defers on request, rather
 than one that can only do one of the two.

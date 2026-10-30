@@ -1,0 +1,13 @@
+---
+import SocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
+---
+
+<a class="ob-link ob-header-docs" href="/docs">Docs</a>
+<SocialIcons />
+
+<style>
+  a { font-family: var(--ob-font-display); font-size: 0.8125rem; white-space: nowrap; }
+  @media (max-width: 39.999rem) {
+    .ob-header-docs { display: none; }
+  }
+</style>

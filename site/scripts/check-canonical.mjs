@@ -2,9 +2,9 @@
 // actually publishes.
 //
 // Starlight derives the canonical from the file it wrote to disk, and under
-// `build.format: "file"` that carries a `.html` nothing else here uses: the
-// sitemap lists `/start/install`, links point at `/start/install`, `llms.txt`
-// points at `/start/install.md`, and Cloudflare Pages 301s the `.html` form to
+// `build.format: "preserve"` that carries a `.html` nothing else here uses: the
+// sitemap lists `/docs/get-started/install`, links point at `/docs/get-started/install`, `llms.txt`
+// points at `/docs/get-started/install.md`, and Cloudflare Pages 301s the `.html` form to
 // the extensionless one. `src/starlight-route-data.ts` corrects the tags, and
 // this asserts the correction still holds — the failure it guards against is
 // silent, produces a build that looks perfect, and is only visible in a crawler
@@ -70,6 +70,16 @@ for (const page of pages) {
   const html = await readFile(page, "utf8");
   const canonical = canonicalOf(html);
   const ogUrl = ogUrlOf(html);
+
+  // Check all pages, including the landing page and 404. Relative links and
+  // absolute links to this origin must obey the same extensionless contract.
+  const base = new URL(canonical ?? process.env.SITE_URL ?? "https://onebox.run");
+  for (const match of html.matchAll(/\bhref\s*=\s*["']([^"']+)["']/gi)) {
+    const href = new URL(match[1].replaceAll("&amp;", "&"), base);
+    if (href.origin === base.origin && href.pathname.endsWith(".html")) {
+      failures.push(`${name}: internal href ${match[1]} must use the extensionless path`);
+    }
+  }
 
   if (canonical === null) {
     failures.push(`${name}: no <link rel="canonical">`);

@@ -34,7 +34,7 @@ const (
 // Docker" is the wrong advice for the common case where Docker is installed and
 // the deploy account simply cannot reach its socket.
 const (
-	prerequisiteDocs = "https://onebox.run/start/install"
+	prerequisiteDocs = "https://onebox.run/docs/get-started/install"
 
 	runtimeAbsentRemedy      = "install Docker Engine, the Compose plugin and Buildx on the server (" + prerequisiteDocs + "), then rerun ob preflight"
 	runtimeDeniedRemedy      = "add the deploy account to the docker group on the server and reconnect so the new membership applies, then rerun ob preflight"

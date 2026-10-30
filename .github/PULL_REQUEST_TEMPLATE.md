@@ -18,7 +18,7 @@ output you compared, or the invariant it preserves.
 <!--
 Does this change what Onebox will do to a running production system, or move
 something between "the schema accepts it" and "the binary does it"? If so, say
-so here and note the corresponding /status/capabilities update. Write "None" if
+so here and note the corresponding /docs/reference/capabilities update. Write "None" if
 neither applies.
 -->
 

@@ -7,17 +7,21 @@ import { toPlainMarkdown } from "../lib/markdown";
 // agent reading top to bottom should meet the ownership boundary before it
 // meets a field table.
 //
-// The landing page groups as "index" rather than under a directory, so it is
-// listed explicitly — it was previously dropped from a document headed
-// "complete documentation".
+// The landing page and docs home share the "index" group, listed explicitly
+// so neither is dropped from the documentation indexes.
 const ROOT = "index";
-const ORDER = [ROOT, "start", "guides", "reference", "explanation", "status", "privacy"];
+const ORDER = [ROOT, "get-started", "guides", "reference", "concepts", "privacy"];
+
+function groupOf(id: string): string {
+  if (id === "docs") return ROOT;
+  return id.replace(/^docs\//, "").split("/")[0] ?? ROOT;
+}
 
 export const GET: APIRoute = async () => {
   const docs = await getCollection("docs");
 
   const unlisted = [
-    ...new Set(docs.map((doc) => doc.id.split("/")[0] ?? ROOT)),
+    ...new Set(docs.map((doc) => groupOf(doc.id))),
   ].filter((group) => !ORDER.includes(group));
   if (unlisted.length > 0) {
     throw new Error(
@@ -27,8 +31,8 @@ export const GET: APIRoute = async () => {
   }
 
   const ranked = [...docs].sort((a, b) => {
-    const ga = ORDER.indexOf(a.id.split("/")[0] ?? ROOT);
-    const gb = ORDER.indexOf(b.id.split("/")[0] ?? ROOT);
+    const ga = ORDER.indexOf(groupOf(a.id));
+    const gb = ORDER.indexOf(groupOf(b.id));
     return ga === gb ? a.id.localeCompare(b.id) : ga - gb;
   });
 

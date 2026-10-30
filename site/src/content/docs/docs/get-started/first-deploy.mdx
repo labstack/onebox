@@ -25,7 +25,7 @@ You need:
 - the server's host key already recorded in `known_hosts`
 
 If the server has no public SSH port, name the bastion it is reached through —
-see [Deploy through a jump host](/guides/deploy-through-a-jump-host/).
+see [Deploy through a jump host](/docs/guides/jump-host).
 
 The first three steps are local and contact nothing. `ob bootstrap` is the first
 command that changes the server. `ob preflight` then reads the provisioned host
@@ -246,4 +246,4 @@ ob abort      # revert an interrupted deploy
 ob rollback   # activate the previous release
 ```
 
-See [Roll back a release](/guides/roll-back).
+See [Roll back a release](/docs/guides/rollback).

@@ -341,8 +341,8 @@ func TestPublishedSchemaURLIsUsedByTheHumanGuide(t *testing.T) {
 		t.Fatalf("schema identity = %q", SchemaID)
 	}
 	guides := []string{
-		"site/src/content/docs/start/reading-it-back.mdx",
-		"site/src/content/docs/reference/project-file.mdx",
+		"site/src/content/docs/docs/get-started/reading-it-back.mdx",
+		"site/src/content/docs/docs/reference/project-file.mdx",
 	}
 	for _, guide := range guides {
 		body, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(guide)))

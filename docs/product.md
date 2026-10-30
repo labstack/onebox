@@ -4,7 +4,7 @@
 >
 > Not an implementation contract. See the [documentation authority
 > map](README.md) for what is shipped, and the
-> [capabilities page](../site/src/content/docs/status/capabilities.mdx) for what
+> [capabilities page](../site/src/content/docs/docs/reference/capabilities.mdx) for what
 > the binary does today versus what the schema merely accepts.
 
 ## Product statement
@@ -175,7 +175,7 @@ declaration is never presented as proof that protection is running.
 
 This tier is direction, not current behaviour. The canonical facts carry the
 field and validate it, but nothing assigns a tier yet, and no surface reports
-one — see [Shipped vs proposed](../site/src/content/docs/status/capabilities.mdx).
+one — see [Shipped vs proposed](../site/src/content/docs/docs/reference/capabilities.mdx).
 
 ## Delivery discipline
 

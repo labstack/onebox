@@ -54,8 +54,8 @@ This page is the reconciliation. Three states:
   it prunes against cannot be read.
 - A closed CLI contract: a versioned envelope, an NDJSON event stream with one
   terminal record, three families of typed error code, and the 0/1/2 exit
-  mapping. See [Policies](/reference/policies) and
-  [Error codes](/reference/errors).
+  mapping. See [Policies](/docs/reference/policies) and
+  [Error codes](/docs/reference/errors).
 - Plan/status drift observation and plan-bound migration **backup reports
   validation**.
 
@@ -91,11 +91,11 @@ Nothing behind them executes.
 
 | Block | Reality today |
 | --- | --- |
-| [`backupTargets`](/reference/fields/backup-targets) | Declaring a target creates no repository and no schedule. |
+| [`backupTargets`](/docs/reference/fields/backup-targets) | Declaring a target creates no repository and no schedule. |
 
-| [`externalServices`](/reference/fields/external-services) | Connections are projected into the generated runtime, and two refusals are wired: an unknown `needs.env` part, and `condition: healthy` against a service with no probe. Health probes do not execute, and the remaining lifecycle refusals are not wired. |
+| [`externalServices`](/docs/reference/fields/external-services) | Connections are projected into the generated runtime, and two refusals are wired: an unknown `needs.env` part, and `condition: healthy` against a service with no probe. Health probes do not execute, and the remaining lifecycle refusals are not wired. |
 
-Every [lifecycle failure code](/reference/errors#lifecycle-failure-codes) is
+Every [lifecycle failure code](/docs/reference/errors#lifecycle-failure-codes) is
 raised by a path in the shipped binary, checked against the source in both
 directions.
 

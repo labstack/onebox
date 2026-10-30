@@ -1,0 +1,75 @@
+---
+title: Documentation
+description: Install Onebox, deploy your application, and operate it on one server.
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+Production operations for an application intentionally running on one server. Start with [What Onebox is](/docs/get-started/overview).
+
+## Quickstart
+
+[Install](/docs/get-started/install) → [Your first deploy](/docs/get-started/first-deploy) → [Reading the file back](/docs/get-started/reading-it-back)
+
+## Browse the documentation
+
+<CardGrid>
+<Card title="Get started">
+
+- [What Onebox is](/docs/get-started/overview)
+- [Install](/docs/get-started/install)
+- [Your first deploy](/docs/get-started/first-deploy)
+- [Reading the file back](/docs/get-started/reading-it-back)
+
+</Card>
+<Card title="Guides">
+
+- [Add a database](/docs/guides/databases)
+- [Back up a database](/docs/guides/backups)
+- [Handle secrets](/docs/guides/secrets)
+- [Run migrations safely](/docs/guides/migrations)
+- [Schedule a job](/docs/guides/cron-jobs)
+- [Roll back a release](/docs/guides/rollback)
+- [Deploy through a jump host](/docs/guides/jump-host)
+- [Environment variables](/docs/guides/environment-variables)
+- [Adopt an existing Compose file](/docs/guides/compose)
+- [Eject](/docs/guides/eject)
+- [Upgrade to onebox names](/docs/guides/upgrade-to-onebox-names)
+
+</Card>
+<Card title="Reference">
+
+- [Project file](/docs/reference/project-file)
+- [Top-level fields](/docs/reference/fields/top-level)
+- [Workloads](/docs/reference/fields/workloads)
+- [Services](/docs/reference/fields/services)
+- [Environments](/docs/reference/fields/environments)
+- [Runtime](/docs/reference/fields/runtime)
+- [Deployment](/docs/reference/fields/deployment)
+- [Checks](/docs/reference/fields/checks)
+- [Proxy](/docs/reference/fields/proxy)
+- [Hooks](/docs/reference/fields/hooks)
+- [Registries](/docs/reference/fields/registries)
+- [Notifications](/docs/reference/fields/notifications)
+- [Backup targets](/docs/reference/fields/backup-targets)
+- [External services](/docs/reference/fields/external-services)
+- [CLI commands](/docs/reference/cli)
+- [Error codes](/docs/reference/errors)
+- [Service drivers](/docs/reference/drivers)
+- [Policies](/docs/reference/policies)
+- [Naming](/docs/reference/naming)
+- [Shipped vs proposed](/docs/reference/capabilities)
+
+</Card>
+<Card title="Concepts">
+
+- [The ownership boundary](/docs/concepts/ownership-boundary)
+- [Evidence, not declaration](/docs/concepts/evidence-not-declaration)
+- [Why Compose is generated](/docs/concepts/generated-compose)
+- [What Onebox refuses](/docs/concepts/what-onebox-refuses)
+- [The safety envelope](/docs/concepts/safety-envelope)
+
+</Card>
+</CardGrid>
+
+For agents: [llms.txt](/llms.txt) lists the documentation; every page has a Markdown version at `<path>.md`, including [this page](/docs.md).

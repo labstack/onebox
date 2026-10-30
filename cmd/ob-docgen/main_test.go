@@ -26,7 +26,7 @@ func TestCLIReferenceMatchesBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join("..", "..", "site", "src", "content", "docs", "reference", "cli.mdx")
+	path := filepath.Join("..", "..", "site", "src", "content", "docs", "docs", "reference", "cli.mdx")
 	committed, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestCommittedPagesMatchTheGenerator(t *testing.T) {
 	want["errors.mdx"] = renderErrorPage()
 	want["drivers.mdx"] = renderDriverPage()
 
-	root := filepath.Join("..", "..", "site", "src", "content", "docs", "reference")
+	root := filepath.Join("..", "..", "site", "src", "content", "docs", "docs", "reference")
 	for name, body := range want {
 		onDisk, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil {

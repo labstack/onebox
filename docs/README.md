@@ -15,16 +15,16 @@ the repository rather than to a reader.
 
 | Was | Now |
 |---|---|
-| `docs/cli.md` | `/reference/cli` — generated from the binary by `cmd/ob-docgen` |
-| `docs/schema-v1.md` | `/reference/project-file` and the generated field pages under `/reference/fields/` |
-| The authority map that used to live here | `/status/capabilities` — every capability marked shipped, schema-only, or intent-only |
+| `docs/cli.md` | `/docs/reference/cli` — generated from the binary by `cmd/ob-docgen` |
+| `docs/schema-v1.md` | `/docs/reference/project-file` and the generated field pages under `/docs/reference/fields/` |
+| The authority map that used to live here | `/docs/reference/capabilities` — every capability marked shipped, schema-only, or intent-only |
 
 ## Which documents are authoritative
 
 Documentation says what is true **today**. Direction lives in
 [`product.md`](product.md), and it is not presented as a capability. What the
 binary actually does is the generated reference under
-`site/src/content/docs/reference/`, produced by `cmd/ob-docgen` and checked
+`site/src/content/docs/docs/reference/`, produced by `cmd/ob-docgen` and checked
 against the binary by `just docs-generate-check`, so it cannot describe
 something the loader does not accept.
 

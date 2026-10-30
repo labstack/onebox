@@ -3,7 +3,7 @@
 // The pages are MDX, so their source carries three things that are noise to
 // anything that is not Astro: ESM `import` lines, Starlight component tags, and
 // the `:::` directive syntax. Serving that raw under `text/markdown` — which is
-// what the alternates did — means `/start/install.md` opens with an import
+// what the alternates did — means `/docs/get-started/install.md` opens with an import
 // statement and `<Steps>`, and the caution blocks that carry the shipped versus
 // proposed distinction arrive as literal colons.
 //
@@ -65,7 +65,8 @@ export function toPlainMarkdown(source: string): string {
 
 // Starlight components carry their text as children, so the tags are removed and
 // the prose between them kept. Tab labels are retained because they provide the
-// context for otherwise indistinguishable command blocks. Self-closing components
+// context for otherwise indistinguishable command blocks. Card titles become
+// headings so their child links retain their section. Self-closing components
 // carry nothing a reader needs and go entirely.
 function stripComponentTags(source: string): string {
   const fences = source.split(/(```[\s\S]*?```)/g);
@@ -75,6 +76,10 @@ function stripComponentTags(source: string): string {
       index % 2 === 1
         ? chunk
         : chunk
+            .replace(
+              /<Card\b[^>]*\btitle=["']([^"']+)["'][^>]*>/g,
+              "\n### $1\n",
+            )
             .replace(
               /<TabItem\b[^>]*\blabel=["']([^"']+)["'][^>]*>/g,
               "\n**$1**\n",

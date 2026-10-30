@@ -9,21 +9,24 @@ import { getCollection } from "astro:content";
 // that are not yet executable say so in the index rather than in the page the
 // agent may never open.
 //
-// The landing page is its own group: splitting on the first path segment gives
-// it "index", which an ORDER list of directory names does not contain, so it was
-// dropped from an index whose own heading promises every page.
+// The landing page and docs home share the "index" group, listed explicitly
+// so neither is dropped from the documentation indexes.
 const ROOT = "index";
-const ORDER = [ROOT, "start", "guides", "reference", "explanation", "status", "privacy"];
+const ORDER = [ROOT, "get-started", "guides", "reference", "concepts", "privacy"];
 
 const GROUP_TITLES: Record<string, string> = {
   [ROOT]: "Overview",
-  start: "Start here",
+  "get-started": "Get started",
   guides: "Guides",
   reference: "Reference",
-  explanation: "Explanation",
-  status: "Status",
+  concepts: "Concepts",
   privacy: "Site terms",
 };
+
+function groupOf(id: string): string {
+  if (id === "docs") return ROOT;
+  return id.replace(/^docs\//, "").split("/")[0] ?? ROOT;
+}
 
 // Keyed by the status union rather than by string, so adding a fourth status is
 // a compile error here instead of a page quietly advertised to an agent without
@@ -56,7 +59,7 @@ export const GET: APIRoute = async ({ site }) => {
     "",
     "## Agent Resources",
     "",
-    `- [Markdown page export](${origin}/start/first-deploy.md): Append \`.md\` to any docs page URL for clean Markdown.`,
+    `- [Markdown page export](${origin}/docs/get-started/first-deploy.md): Append \`.md\` to any docs page URL for clean Markdown.`,
     `- [Full documentation text](${origin}/llms-full.txt): Every page concatenated, for one-shot ingestion.`,
     `- [Project file JSON Schema](${origin}/schemas/application/v1alpha2/application.schema.json): The machine contract the loader enforces.`,
     `- [Sitemap](${origin}/sitemap-index.xml): Crawler URL index.`,
@@ -68,16 +71,16 @@ export const GET: APIRoute = async ({ site }) => {
     "- Lifecycle operation commands: `ob deploy`, `ob rollback`, `ob resume`, `ob abort`, `ob bootstrap`, `ob destroy`, `ob job run`, `ob service apply`, `ob proxy apply`, `ob secrets push`; each enforces its own plan, confirmation, lock, and recovery requirements.",
     "- `ob exec --reason ...` is an audited escape hatch. Nothing it changes belongs to a release; the journal stores only safe invocation metadata and a command digest, never command or output bytes.",
     "- `ob approve` records a short-lived local confirmation bound to one exact plan. Its digest detects modification; it is not authenticated identity or an independently issued capability.",
-    "- A failure carries a stable `code` and separates read-only `diagnostic_command`, workflow `next_command`, and mutation-capable `resolving_command` guidance. Branch on the code, not the sentence. The full catalogue is at `/reference/errors.md`.",
+    "- A failure carries a stable `code` and separates read-only `diagnostic_command`, workflow `next_command`, and mutation-capable `resolving_command` guidance. Branch on the code, not the sentence. The full catalogue is at `/docs/reference/errors.md`.",
     "",
-    "See `/reference/policies.md` for the schema identity of every structured document.",
+    "See `/docs/reference/policies.md` for the schema identity of every structured document.",
     "",
   ];
 
   // Silently dropping a section is how a whole directory of documentation
   // becomes invisible to every agent while the site builds clean and the
   // sidebar still shows it. Fail the build instead.
-  const groups = new Set(docs.map((doc) => doc.id.split("/")[0] ?? ROOT));
+  const groups = new Set(docs.map((doc) => groupOf(doc.id)));
   const unlisted = [...groups].filter((group) => !ORDER.includes(group));
   if (unlisted.length > 0) {
     throw new Error(
@@ -100,7 +103,7 @@ export const GET: APIRoute = async ({ site }) => {
 
   const byGroup = new Map<string, typeof docs>();
   for (const doc of docs) {
-    const group = doc.id.split("/")[0] ?? ROOT;
+    const group = groupOf(doc.id);
     const bucket = byGroup.get(group) ?? [];
     bucket.push(doc);
     byGroup.set(group, bucket);

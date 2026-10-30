@@ -7,7 +7,7 @@
 // contract that disagrees with the loader is worse than none — it teaches the
 // author something untrue and they learn to ignore it.
 //
-// So this program is the only writer of `site/src/content/docs/reference/`
+// So this program is the only writer of `site/src/content/docs/docs/reference/`
 // — the field pages, `drivers.mdx`, `errors.mdx` and `cli.mdx` — and of the
 // schema published below `site/public/schemas/application/v1alpha2/`. Those pages carry
 // a generated marker,
@@ -45,7 +45,7 @@ func main() {
 		obBin  string
 		check  bool
 	)
-	flag.StringVar(&out, "out", "site/src/content/docs/reference", "directory to write generated reference pages into")
+	flag.StringVar(&out, "out", "site/src/content/docs/docs/reference", "directory to write generated reference pages into")
 	flag.StringVar(&public, "public", "site/public", "directory to publish machine-readable artifacts into")
 	flag.StringVar(&obBin, "ob", "", "path to a built ob binary, for the CLI reference (default: look on PATH)")
 	flag.BoolVar(&check, "check", false, "fail if the files on disk differ from what would be generated")
@@ -1009,14 +1009,14 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf, "rather than replacing the container and leaving the data intact and unreachable.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "For `postgres`, declaring `backup` changes this — see")
-	fmt.Fprintln(&buf, "[Shipped vs proposed](/status/capabilities).")
+	fmt.Fprintln(&buf, "[Shipped vs proposed](/docs/reference/capabilities).")
 	fmt.Fprintln(&buf, ":::")
 	fmt.Fprintln(&buf)
 
 	fmt.Fprintln(&buf, "## Anything else")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "Run it as a `daemon` workload and you own it: the image, the credential, the")
-	fmt.Fprintln(&buf, "volumes, the backup. See [Add a database](/guides/add-a-database) for the")
+	fmt.Fprintln(&buf, "volumes, the backup. See [Add a database](/docs/guides/databases) for the")
 	fmt.Fprintln(&buf, "comparison.")
 
 	return buf.String()

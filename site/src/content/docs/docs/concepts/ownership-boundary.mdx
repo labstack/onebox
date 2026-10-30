@@ -17,7 +17,7 @@ services, schedules, locks, and the evidence needed to operate them are not your
 application, and therefore sit on Onebox's side of the line.
 
 That sentence is the **direction**, not an inventory. What is owned today is
-listed on [Shipped vs proposed](/status/capabilities), and the gap between the
+listed on [Shipped vs proposed](/docs/reference/capabilities), and the gap between the
 two is stated rather than blurred.
 
 ## Three consequences
@@ -31,7 +31,7 @@ asking you to do it as well would mean two descriptions that can disagree.
 **It is why Compose became a generated artifact.** Compose was once an input
 Onebox read. Under this boundary, reading a file you wrote would mean you own the
 runtime and Onebox merely operates it — which is the opposite arrangement. See
-[Why Compose is generated](/explanation/generated-compose).
+[Why Compose is generated](/docs/concepts/generated-compose).
 
 **It is why a database is something you select rather than something you
 configure.** `services: {postgres: 17}` is sufficient because the image, port,
@@ -133,4 +133,4 @@ and an on-demand recovery drill. Other drivers remain explicit about the missing
 contract and refuse `backup` at validation.
 
 The ordering is the point: a declaration is never presented as proof that
-protection is running. See [Evidence, not declaration](/explanation/evidence-not-declaration).
+protection is running. See [Evidence, not declaration](/docs/concepts/evidence-not-declaration).

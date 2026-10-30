@@ -3,18 +3,17 @@ import { defineRouteMiddleware } from "@astrojs/starlight/route-data";
 // Strips the `.html` Astro puts in the canonical URL.
 //
 // Starlight builds the canonical from `Astro.url.pathname`, and under
-// `build.format: "file"` that pathname is the file it wrote to disk, so the tag
-// read `https://onebox.run/start/install.html`. Nothing else on the site uses
-// that form: the sitemap lists `/start/install`, every internal link points at
-// `/start/install`, `llms.txt` points at `/start/install.md`, and Cloudflare
+// `build.format: "preserve"` that pathname is the file it wrote to disk, so the tag
+// read `https://onebox.run/docs/get-started/install.html`. Nothing else on the site uses
+// that form: the sitemap lists `/docs/get-started/install`, every internal link points at
+// `/docs/get-started/install`, `llms.txt` points at `/docs/get-started/install.md`, and Cloudflare
 // Pages — where this site is published — serves the extensionless path and 301s
 // the `.html` one to it. The single tag whose job is to state the page's real
 // address was naming a redirect, on every page.
 //
-// Starlight's own `formatCanonical` returns the href untouched when the format
-// is "file". That is right for a server that only serves `foo.html`, and wrong
-// for this one, which is why the correction lives here rather than in a
-// configuration flag.
+// No Starlight option strips it: `formatCanonical` only adjusts a trailing
+// slash. Navigation links need no correction, because "preserve" (unlike
+// "file") makes Starlight emit them without the extension.
 //
 // The tags are rewritten in place rather than appended to, because two
 // `<link rel="canonical">` elements with different hrefs are worse than one

@@ -11,7 +11,7 @@ server.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/labstack/onebox/ci.yml?branch=main&label=ci&color=4f9a3c&labelColor=22291f)](https://github.com/labstack/onebox/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/labstack/onebox?label=release&color=4f9a3c&labelColor=22291f)](https://github.com/labstack/onebox/releases) [![Licence](https://img.shields.io/badge/licence-Apache--2.0-4f9a3c?labelColor=22291f)](LICENSE)
 
-[Documentation](https://onebox.run) · [Install](https://onebox.run/start/install) · [First deploy](https://onebox.run/start/first-deploy) · [Capabilities](https://onebox.run/status/capabilities) · [Releases](https://github.com/labstack/onebox/releases)
+[Documentation](https://onebox.run/docs) · [Install](https://onebox.run/docs/get-started/install) · [First deploy](https://onebox.run/docs/get-started/first-deploy) · [Capabilities](https://onebox.run/docs/reference/capabilities) · [Releases](https://github.com/labstack/onebox/releases)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/media/deploy-dark.svg">
@@ -60,7 +60,7 @@ owns the generated application runtime inside that boundary.
 ### 1. Install the CLI
 
 Homebrew, Scoop, release archives, and Debian/RPM packages are available. The
-[installation guide](https://onebox.run/start/install) includes checksum
+[installation guide](https://onebox.run/docs/get-started/install) includes checksum
 verification and source builds.
 
 ```sh
@@ -112,7 +112,7 @@ expires after 15 minutes; drift or a changed local payload requires a new one.
 
 Approval is a short-lived, digest-bound local confirmation. It is
 tamper-evident ceremony, not authenticated identity or an independently issued
-capability. See [Your first deploy](https://onebox.run/start/first-deploy) for
+capability. See [Your first deploy](https://onebox.run/docs/get-started/first-deploy) for
 the complete walkthrough and expected output.
 
 ## Refusing is part of the contract
@@ -127,8 +127,8 @@ Onebox refuses configurations it cannot operate safely, including:
 
 There is no generic `--force`. Each exceptional path grants one named
 capability, such as breaking a stale lock or accepting a destructive volume
-change. [What Onebox refuses](https://onebox.run/explanation/what-onebox-refuses)
-and [the safety envelope](https://onebox.run/explanation/safety-envelope) give
+change. [What Onebox refuses](https://onebox.run/docs/concepts/what-onebox-refuses)
+and [the safety envelope](https://onebox.run/docs/concepts/safety-envelope) give
 the full rules.
 
 ## Boundaries that matter
@@ -143,7 +143,7 @@ the full rules.
 - **MongoDB is standalone.** Applications requiring change streams or
   multi-document transactions need a replica set, which Onebox does not manage.
 
-[Shipped vs proposed](https://onebox.run/status/capabilities) is the complete
+[Shipped vs proposed](https://onebox.run/docs/reference/capabilities) is the complete
 account of what the binary executes today and what remains direction.
 
 ## How it compares
@@ -172,7 +172,7 @@ are typed: branch on the code, never the sentence.
 There is deliberately no MCP mutation surface. Point an agent at `ob` the way
 you would point it at `gh`; every lifecycle decision still passes through the
 same canonical service and safety checks. See the
-[structured-output policies](https://onebox.run/reference/policies#structured-output-contracts).
+[structured-output policies](https://onebox.run/docs/reference/policies#structured-output-contracts).
 
 ## Documentation
 
@@ -180,20 +180,20 @@ Every page on **[onebox.run](https://onebox.run)** is also available as clean
 Markdown at `<path>.md`; [llms.txt](https://onebox.run/llms.txt) maps the site
 for agents.
 
-- **Start:** [installation](https://onebox.run/start/install) and
-  [your first deploy](https://onebox.run/start/first-deploy)
-- **Operate:** [databases](https://onebox.run/guides/add-a-database),
-  [backups](https://onebox.run/guides/back-up-a-database),
-  [migrations](https://onebox.run/guides/run-migrations),
-  [secrets](https://onebox.run/guides/handle-secrets), and
-  [rollback](https://onebox.run/guides/roll-back)
-- **Reference:** [project file](https://onebox.run/reference/project-file),
-  [CLI](https://onebox.run/reference/cli),
-  [errors](https://onebox.run/reference/errors), and
-  [policies](https://onebox.run/reference/policies)
-- **Understand:** [ownership boundary](https://onebox.run/explanation/ownership-boundary),
-  [evidence, not declaration](https://onebox.run/explanation/evidence-not-declaration),
-  and [generated Compose](https://onebox.run/explanation/generated-compose)
+- **Start:** [installation](https://onebox.run/docs/get-started/install) and
+  [your first deploy](https://onebox.run/docs/get-started/first-deploy)
+- **Operate:** [databases](https://onebox.run/docs/guides/databases),
+  [backups](https://onebox.run/docs/guides/backups),
+  [migrations](https://onebox.run/docs/guides/migrations),
+  [secrets](https://onebox.run/docs/guides/secrets), and
+  [rollback](https://onebox.run/docs/guides/rollback)
+- **Reference:** [project file](https://onebox.run/docs/reference/project-file),
+  [CLI](https://onebox.run/docs/reference/cli),
+  [errors](https://onebox.run/docs/reference/errors), and
+  [policies](https://onebox.run/docs/reference/policies)
+- **Understand:** [ownership boundary](https://onebox.run/docs/concepts/ownership-boundary),
+  [evidence, not declaration](https://onebox.run/docs/concepts/evidence-not-declaration),
+  and [generated Compose](https://onebox.run/docs/concepts/generated-compose)
 
 The field, CLI, and error references are generated from the binary by
 `cmd/ob-docgen`, so documentation cannot silently drift from the accepted

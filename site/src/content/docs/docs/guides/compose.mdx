@@ -63,7 +63,7 @@ release behaviour.
 
 The one difference is precedence *inside* the container: the referenced Compose
 service's own `env_file` sits at the bottom of the stack, below the resolved
-`envFiles` entries. See [Handle secrets](/guides/handle-secrets).
+`envFiles` entries. See [Handle secrets](/docs/guides/secrets).
 
 ## Migrating away from adoption
 
@@ -71,4 +71,4 @@ Adoption is a resting place, not a destination. When you can describe the
 workload in the schema, do — you get health-gated rollout, typed routing, derived
 names and drift detection that a verbatim copy cannot give you.
 
-If you want to go the other way entirely, see [Eject](/guides/eject).
+If you want to go the other way entirely, see [Eject](/docs/guides/eject).

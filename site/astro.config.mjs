@@ -15,7 +15,7 @@ export default defineConfig({
   server: { port: 7565 },
   vite: { server: { strictPort: true } },
   trailingSlash: "never",
-  build: { format: "file" },
+  build: { format: "preserve" },
   markdown: { rehypePlugins: [rehypeTableWrap] },
   integrations: [
     starlight({
@@ -64,9 +64,10 @@ export default defineConfig({
         // Adds the site footer band below the content, and lets the main frame
         // take the slack so it sits at the bottom of a short page.
         PageFrame: "./src/components/PageFrame.astro",
+        SocialIcons: "./src/components/SocialIcons.astro",
       },
       // Starlight derives the canonical URL from the on-disk file name, which
-      // under `build.format: "file"` carries a `.html` no link, sitemap entry
+      // under `build.format: "preserve"` carries a `.html` no link, sitemap entry
       // or agent-facing URL on this site uses. See the middleware for why the
       // tags are rewritten rather than re-declared.
       routeMiddleware: "./src/starlight-route-data.ts",
@@ -75,58 +76,56 @@ export default defineConfig({
       favicon: "/favicon.svg",
       sidebar: [
         {
-          label: "Start here",
+          label: "Get started",
           items: [
-            { label: "What Onebox is", slug: "start/what-onebox-is" },
-            { label: "Install", slug: "start/install" },
-            { label: "Your first deploy", slug: "start/first-deploy" },
-            { label: "Reading the file back", slug: "start/reading-it-back" },
+            { label: "What Onebox is", slug: "docs/get-started/overview" },
+            { label: "Install", slug: "docs/get-started/install" },
+            { label: "Your first deploy", slug: "docs/get-started/first-deploy" },
+            { label: "Reading the file back", slug: "docs/get-started/reading-it-back" },
           ],
         },
         {
           label: "Guides",
           items: [
-            { label: "Add a database", slug: "guides/add-a-database" },
-            { label: "Back up a database", slug: "guides/back-up-a-database" },
-            { label: "Handle secrets", slug: "guides/handle-secrets" },
-            { label: "Run migrations safely", slug: "guides/run-migrations" },
-            { label: "Schedule a job", slug: "guides/schedule-a-job" },
-            { label: "Roll back a release", slug: "guides/roll-back" },
-            { label: "Deploy through a jump host", slug: "guides/deploy-through-a-jump-host" },
-            { label: "Environment variables", slug: "guides/environment-variables" },
-            { label: "Adopt an existing Compose file", slug: "guides/adopt-compose" },
-            { label: "Eject", slug: "guides/eject" },
-            { label: "Upgrade to onebox names", slug: "guides/upgrade-to-onebox-names" },
+            { label: "Add a database", slug: "docs/guides/databases" },
+            { label: "Back up a database", slug: "docs/guides/backups" },
+            { label: "Handle secrets", slug: "docs/guides/secrets" },
+            { label: "Run migrations safely", slug: "docs/guides/migrations" },
+            { label: "Schedule a job", slug: "docs/guides/cron-jobs" },
+            { label: "Roll back a release", slug: "docs/guides/rollback" },
+            { label: "Deploy through a jump host", slug: "docs/guides/jump-host" },
+            { label: "Environment variables", slug: "docs/guides/environment-variables" },
+            { label: "Adopt an existing Compose file", slug: "docs/guides/compose" },
+            { label: "Eject", slug: "docs/guides/eject" },
+            { label: "Upgrade to onebox names", slug: "docs/guides/upgrade-to-onebox-names" },
           ],
         },
         {
           label: "Reference",
           items: [
-            { label: "Project file", slug: "reference/project-file" },
+            { label: "Project file", slug: "docs/reference/project-file" },
             {
               label: "Project file fields",
               collapsed: true,
-              items: [{ autogenerate: { directory: "reference/fields" } }],
+              items: [{ autogenerate: { directory: "docs/reference/fields" } }],
             },
-            { label: "CLI commands", slug: "reference/cli" },
-            { label: "Error codes", slug: "reference/errors" },
-            { label: "Service drivers", slug: "reference/drivers" },
-            { label: "Policies", slug: "reference/policies" },
+            { label: "CLI commands", slug: "docs/reference/cli" },
+            { label: "Error codes", slug: "docs/reference/errors" },
+            { label: "Service drivers", slug: "docs/reference/drivers" },
+            { label: "Policies", slug: "docs/reference/policies" },
+            { label: "Naming", slug: "docs/reference/naming" },
+            { label: "Shipped vs proposed", slug: "docs/reference/capabilities" },
           ],
         },
         {
-          label: "Explanation",
+          label: "Concepts",
           items: [
-            { label: "The ownership boundary", slug: "explanation/ownership-boundary" },
-            { label: "Evidence, not declaration", slug: "explanation/evidence-not-declaration" },
-            { label: "Why Compose is generated", slug: "explanation/generated-compose" },
-            { label: "What Onebox refuses", slug: "explanation/what-onebox-refuses" },
-            { label: "The safety envelope", slug: "explanation/safety-envelope" },
+            { label: "The ownership boundary", slug: "docs/concepts/ownership-boundary" },
+            { label: "Evidence, not declaration", slug: "docs/concepts/evidence-not-declaration" },
+            { label: "Why Compose is generated", slug: "docs/concepts/generated-compose" },
+            { label: "What Onebox refuses", slug: "docs/concepts/what-onebox-refuses" },
+            { label: "The safety envelope", slug: "docs/concepts/safety-envelope" },
           ],
-        },
-        {
-          label: "Status",
-          items: [{ label: "Shipped vs proposed", slug: "status/capabilities" }],
         },
       ],
     }),

@@ -27,7 +27,7 @@ product decision, not a code review question, and it is far cheaper to settle
 before the code exists.
 
 [`docs/product.md`](docs/product.md) records the direction, and
-`/status/capabilities` records what the binary does today versus what the schema
+`/docs/reference/capabilities` records what the binary does today versus what the schema
 merely accepts. A change that moves something between those two states should
 say so in its description.
 
@@ -73,7 +73,7 @@ just e2e
 ## Generated documentation
 
 The field reference, CLI reference, and error code pages under
-`site/src/content/docs/reference/` are **generated from the binary** by
+`site/src/content/docs/docs/reference/` are **generated from the binary** by
 `cmd/ob-docgen`. Do not hand-edit them; they are committed so that a reader of
 the repository sees the same reference a reader of the website does.
 

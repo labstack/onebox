@@ -58,23 +58,23 @@ Configuration blocks live under `spec`; the application name lives in
 
 | Block | What it says | Fields |
 | --- | --- | --- |
-| `metadata.name` | The application's name. Every derived name carries it. | [Top level](/reference/fields/top-level) |
-| `environments` | Where it runs, and the policy that governs deploying there. | [environments](/reference/fields/environments) |
-| `workloads` | The containers that are yours. | [workloads](/reference/fields/workloads) |
-| `services` | The supporting services Onebox runs for you. | [services](/reference/fields/services) |
-| `deployment` | Release order, retention, migration policy. | [deployment](/reference/fields/deployment) |
-| `proxy` | Who runs the proxy and what routes. | [proxy](/reference/fields/proxy) |
-| `runtime` | Environment files and local environment-file checks. | [runtime](/reference/fields/runtime) |
-| `hooks` | Commands at lifecycle seams. | [hooks](/reference/fields/hooks) |
-| `checks` | What must be true for a release to activate, grouped by kind. | [checks](/reference/fields/checks) |
-| `externalServices` | Dependencies operated outside Onebox, and how a workload reaches them. | [externalServices](/reference/fields/external-services) |
-| `backupTargets` | Off-host repositories a protected service writes its backups to. | [backupTargets](/reference/fields/backup-targets) |
-| `registries` `notifications` | Named maps. | [registries](/reference/fields/registries) · [notifications](/reference/fields/notifications) |
+| `metadata.name` | The application's name. Every derived name carries it. | [Top level](/docs/reference/fields/top-level) |
+| `environments` | Where it runs, and the policy that governs deploying there. | [environments](/docs/reference/fields/environments) |
+| `workloads` | The containers that are yours. | [workloads](/docs/reference/fields/workloads) |
+| `services` | The supporting services Onebox runs for you. | [services](/docs/reference/fields/services) |
+| `deployment` | Release order, retention, migration policy. | [deployment](/docs/reference/fields/deployment) |
+| `proxy` | Who runs the proxy and what routes. | [proxy](/docs/reference/fields/proxy) |
+| `runtime` | Environment files and local environment-file checks. | [runtime](/docs/reference/fields/runtime) |
+| `hooks` | Commands at lifecycle seams. | [hooks](/docs/reference/fields/hooks) |
+| `checks` | What must be true for a release to activate, grouped by kind. | [checks](/docs/reference/fields/checks) |
+| `externalServices` | Dependencies operated outside Onebox, and how a workload reaches them. | [externalServices](/docs/reference/fields/external-services) |
+| `backupTargets` | Off-host repositories a protected service writes its backups to. | [backupTargets](/docs/reference/fields/backup-targets) |
+| `registries` `notifications` | Named maps. | [registries](/docs/reference/fields/registries) · [notifications](/docs/reference/fields/notifications) |
 
 `externalServices` declares dependencies operated outside Onebox;
 `backupTargets` declares off-host backup destinations. Declaring a destination
 does not enable protection by itself. Executable support depends on the service
-and the operation; see [Shipped vs proposed](/status/capabilities).
+and the operation; see [Shipped vs proposed](/docs/reference/capabilities).
 
 Unknown fields, including behavior-bearing `x-*` fields, are rejected. Store
 opaque notes in `metadata.annotations`; annotations do not change the runtime.
@@ -107,7 +107,7 @@ Lists replace rather than extend.
 files; the service's `environment`.
 
 Full explanation, including why level four outranks the rest:
-[Handle secrets](/guides/handle-secrets).
+[Handle secrets](/docs/guides/secrets).
 
 ## What Onebox generates
 
@@ -318,8 +318,8 @@ the referenced middleware must match the route's protocol.
 A Compose file you wrote cannot be the contract — the declaration is, and Onebox
 generates the runtime from it. Individual services can still be adopted with
 `compose: docker-compose.yml#service`, and Onebox generates around them. See
-[Why Compose is generated](/explanation/generated-compose) and
-[Adopt an existing Compose file](/guides/adopt-compose).
+[Why Compose is generated](/docs/concepts/generated-compose) and
+[Adopt an existing Compose file](/docs/guides/compose).
 :::
 
 The JSON Schema published by `ob schema` is generated from the same declarations

@@ -17,8 +17,8 @@ ob init
 ```
 
 It reads the Compose file you already have and writes an `ob.yml` that describes
-the same application in Onebox's terms. Review it — workload roles, persistence
-semantics, readiness, job data effects, and the environment's server — before
+the same application in Onebox's terms. Review it (workload roles, persistence
+semantics, readiness, job data effects, and the environment's server) before
 running a plan.
 
 ## When the model does not fit
@@ -32,15 +32,13 @@ workloads:
     compose: docker-compose.yml#legacy
 ```
 
-The named service is copied verbatim with Onebox's overlay applied. This is the
-escape hatch, and it is deliberate — Onebox can operate any containerised
+The named service is copied verbatim with Onebox's overlay applied. Onebox can operate any containerised
 application inside its envelope when health, rollout, persistence and job
-semantics are declared honestly, and `compose:` covers the rest.
+semantics are declared accurately, and `compose:` covers the rest.
 
 ## Six refusals, and why
 
-Each of these contradicts something Onebox owns, so it fails at load rather than
-producing a runtime that disagrees with itself.
+Each of these contradicts something Onebox owns, so it fails at load.
 
 | Code | The referenced service… |
 | --- | --- |
@@ -54,11 +52,10 @@ producing a runtime that disagrees with itself.
 Plus the structural ones: `compose_ref_malformed` (not `path#service`),
 `compose_file_unreadable`, `compose_file_unparsable`, `compose_service_missing`.
 
-## An adopted workload is not a second-class one
+## Adopted workloads resolve like inline ones
 
 A workload's source never changes what it receives. An application adopted
-through `compose:` resolves exactly what an application declared inline resolves
-— the same environment file precedence, the same connection wiring, the same
+through `compose:` resolves exactly what an application declared inline resolves: the same environment file precedence, the same connection wiring, the same
 release behaviour.
 
 The one difference is precedence *inside* the container: the referenced Compose
@@ -67,8 +64,7 @@ service's own `env_file` sits at the bottom of the stack, below the resolved
 
 ## Migrating away from adoption
 
-Adoption is a resting place, not a destination. When you can describe the
-workload in the schema, do — you get health-gated rollout, typed routing, derived
+When you can describe the workload in the schema, move it there. You get health-gated rollout, typed routing, derived
 names and drift detection that a verbatim copy cannot give you.
 
 If you want to go the other way entirely, see [Eject](/docs/guides/eject).

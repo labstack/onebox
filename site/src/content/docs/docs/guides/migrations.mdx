@@ -117,9 +117,9 @@ ob deploy \
 ### The backup report
 
 The report template is projected directly from the plan, with protected
-resources already filled in and deliberately invalid `REPLACE-...` values. It
+resources already filled in and invalid `REPLACE-...` values. It
 uses `onebox.run/backup-report/v1alpha1` and records artifact, integrity,
-restore-test, and key-usability observations — never backup bytes or secrets.
+restore-test, and key-usability observations: never backup bytes or secrets.
 
 | Field | What it holds |
 | --- | --- |
@@ -134,7 +134,7 @@ restore-test, and key-usability observations — never backup bytes or secrets.
 | `resources[].restore_test` | `state` is `passed` or `not_tested`. `passed` **requires** `method`, `tested_at` and a lowercase `sha256:` `validation_digest`; `not_tested` refuses all three |
 | `key_material[]` | one per entry in the plan's `required_key_material`: `name`, `backup_id`, `created_at`, `integrity`, and `usability` (`method`, `validated_at`, `validation_digest`) |
 
-Unknown fields are refused, so a typo is named rather than ignored.
+Unknown fields are refused, so a typo is reported.
 
 ## When you have to go anyway
 
@@ -144,14 +144,13 @@ ob deploy --plan ob-plan.json --approval ob-approval.json \
 ```
 
 An audited override requires the exact plan's strong or break-glass local
-confirmation. It is recorded, not silent.
+confirmation. The override is recorded.
 
 ## Approval ceremony
 
 Migrations and unknown data effects use the **strong ceremony**, where the
 operator types back what the plan acts on: the release ID for a deploy, the job
-name for a job run. That is the difference between confirming a routine deploy
-and confirming one that may not be reversible. A migration job asks whether or
+name for a job run. A migration job asks whether or
 not approval policy is enabled.
 
 ## Release-wide policy
@@ -162,7 +161,7 @@ deployment:
 ```
 
 `expand-only` is your promise, not a check Onebox performs. It declares that
-every migration in this project is additive — that a release running the old
+every migration in this project is additive: that a release running the old
 code against the new schema still works. Onebox never inspects your SQL; it
 takes the declaration and, on the strength of it, keeps the rollback gate
 **open** after a `dataEffect: Migration` job runs, so a failed verify can roll

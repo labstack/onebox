@@ -1,6 +1,6 @@
 ---
 title: Roll back a release
-description: Rollback, resume and abort — three different operations with three different guarantees.
+description: "Rollback, resume and abort: three different operations with three different guarantees."
 summary: When to use rollback, resume and abort, what each guarantees, and why a data effect can make a rollback refuse.
 sidebar:
   order: 5
@@ -10,8 +10,8 @@ read_when:
   - "Understanding why a rollback was refused"
 ---
 
-Three commands, three different situations. Choosing the wrong one is the usual
-way an incident gets worse.
+Rollback, resume and abort handle different situations; choosing the wrong one
+is the usual way an incident gets worse.
 
 | Situation | Command | What it does |
 | --- | --- | --- |
@@ -49,12 +49,8 @@ strategy. Abort uses the same fail-closed rule.
 ## What rollback does not do
 
 :::danger[Application rollback is not data recovery]
-Application rollback, data recovery, and reversal of an external side effect are
-different operations with different guarantees. Onebox classifies the risk and
-**refuses** when evidence or a driver contract is insufficient.
-
-No flag turns an unsupported operation into a safe one. The override flags below
-do not widen what Onebox can do — each one records that you have taken
+See the [bounded safety guarantees](/docs/reference/policies#safety-claims-are-bounded). The override flags below
+do not widen what Onebox can do; each one records that you have taken
 responsibility for one specific judgement it refused to make for you.
 :::
 
@@ -65,9 +61,8 @@ Concretely:
   removes its volume. That protects your data; it also means a schema migration
   is still applied after you roll the application back.
 - **A job with `dataEffect: Migration` or `destructive` constrains the gate.**
-  That is what the field is for.
 - **A job whose result evidence is missing becomes `changed=unknown`** and halts
-  before workload replacement rather than proceeding on an assumption.
+  before workload replacement.
 
 ## Resume and abort work from durable state
 
@@ -84,8 +79,8 @@ ob abort  --output ndjson
 
 Activation splits the two halves of a deploy. Interrupted before it, the release
 never took effect and `ob resume` replays the phases that remain. Interrupted
-after it — retention, schedule sync or the `post_deploy` hook failed while the
-new release was already current and healthy — there is nothing to replay:
+after it (retention, schedule sync or the `post_deploy` hook failed while the
+new release was already current and healthy) there is nothing to replay:
 `ob resume` completes only those remaining steps, skipping any the journal
 already records as done, and the release keeps serving throughout. The manifest
 carries a failed operation outcome in the meantime, so a healthy release and an
@@ -98,8 +93,8 @@ labels all agree. One disagreement returns `finalize_refused`: no step runs and
 no release, symlink or workload changes.
 
 Only the newest deploy is recoverable. Once a later deploy reaches a terminal
-state of its own — finished, aborted, or automatically rolled back — the older
-interrupted one is history rather than pending work, and resuming it would
+state of its own (finished, aborted, or automatically rolled back) the older
+interrupted one is no longer pending work, and resuming it would
 re-activate a release the host has already moved past. `ob status` stops
 reporting it; `ob audit` still shows the run.
 
@@ -111,7 +106,7 @@ is refused on its superseded manifest before any workload is touched.
 
 Two refusals have an override, and each grants exactly one thing.
 
-**`migration_gate_closed`** — the interrupted release ran a job or hook whose
+**`migration_gate_closed`**: the interrupted release ran a job or hook whose
 data effects are rollback-unknown, so `ob abort` will not roll the application
 back on its own. Fix forward and `ob resume`, or, if you know the old code reads
 the current data correctly, take responsibility explicitly:
@@ -120,7 +115,7 @@ the current data correctly, take responsibility explicitly:
 ob abort --break-migration-gate --output ndjson
 ```
 
-**A stale operation lock** — a previous runner died holding it. Inspect the
+**A stale operation lock**: a previous runner died holding it. Inspect the
 holder in `ob status` first; the lock records who took it and when. If it is
 genuinely abandoned:
 
@@ -129,12 +124,12 @@ ob abort --break-lock --output ndjson
 ```
 
 `--break-lock` is on six commands: `deploy`, `bootstrap`, `abort`, `job run`,
-`service apply` and `proxy apply`. Not every mutating command has it — `resume`,
+`service apply` and `proxy apply`. Not every mutating command has it: `resume`,
 `destroy` and `secrets push` do not. It breaks the application and host locks
 only. The backup lock has no override and clears on TTL expiry or when the
 same operation returns.
 
-**An unreadable or invalid fencing epoch** — there is deliberately no override.
+**An unreadable or invalid fencing epoch**: there is no override.
 The application authority is `<base>/<app>/epoch`; each backup service has a
 second authority at `<base>/<app>/backup/locks/<service>.epoch`. Do not delete
 either file or replace it with `0` or `1`: that can recreate a fence still held
@@ -151,7 +146,7 @@ guarantee the epoch exists to provide.
 
 Rolling deployment can avoid interruption while the host is healthy. It cannot
 make a failed host available. Recovery onto another host is a distinct,
-evidence-backed workflow — not failover, and not something rollback reaches.
+evidence-backed workflow: not failover, and not something rollback reaches.
 
 ## Inspecting what happened
 

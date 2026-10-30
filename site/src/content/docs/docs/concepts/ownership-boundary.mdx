@@ -1,11 +1,11 @@
 ---
 title: The ownership boundary
 description: Why one sentence about ownership drives every other decision in the product.
-summary: The organising principle — you own your application containers, Onebox owns everything else — and the three design consequences that follow from it.
+summary: The organising principle (you own your application containers, Onebox owns everything else) and the three design consequences that follow from it.
 sidebar:
   order: 1
 read_when:
-  - "Understanding why the project file declares intent rather than describing containers"
+  - "Understanding why the project file declares application intent"
   - "Explaining the product's design rationale"
 ---
 
@@ -16,25 +16,21 @@ Inside that boundary, the proxy, TLS, networks, release staging, supporting data
 services, schedules, locks, and the evidence needed to operate them are not your
 application, and therefore sit on Onebox's side of the line.
 
-That sentence is the **direction**, not an inventory. What is owned today is
-listed on [Shipped vs proposed](/docs/reference/capabilities), and the gap between the
-two is stated rather than blurred.
+That sentence states the direction. What is owned today is listed on
+[Shipped vs proposed](/docs/reference/capabilities).
 
 ## Three consequences
 
-This is the organising principle behind everything else.
-
-**It is why the project file declares intent rather than describing containers.**
+**It is why the project file declares application intent.**
 If Onebox owns the runtime, then describing the runtime is Onebox's job, and
 asking you to do it as well would mean two descriptions that can disagree.
 
 **It is why Compose became a generated artifact.** Compose was once an input
 Onebox read. Under this boundary, reading a file you wrote would mean you own the
-runtime and Onebox merely operates it — which is the opposite arrangement. See
+runtime and Onebox merely operates it, reversing that ownership. See
 [Why Compose is generated](/docs/concepts/generated-compose).
 
-**It is why a database is something you select rather than something you
-configure.** `services: {postgres: 17}` is sufficient because the image, port,
+**It is why you select a database and Onebox configures it.** `services: {postgres: 17}` is sufficient because the image, port,
 data path, health check and credential all sit on Onebox's side of the line.
 
 ## The boundary needs a name on it
@@ -42,7 +38,7 @@ data path, health check and credential all sit on Onebox's side of the line.
 "Onebox owns everything else on the box" is only meaningful if exactly one
 application is doing the owning. Two Onebox applications on one host would both
 believe they own the proxy, the shared network, the release store and the host
-lock — and the second one to converge would quietly undo the first.
+lock, and the second one to converge would quietly undo the first.
 
 So ownership is written down. `ob bootstrap` records the owning application and
 the environment that claimed the host, and every mutating command reads that
@@ -64,29 +60,28 @@ it, leaving Onebox's state available for a safe retry.
 
 A different *environment* of the same application is refused too, with
 `host_environment_mismatch`, and that refusal is the less obvious one. Every
-runtime name Onebox derives — the Compose project, container names, volume
-names — carries the application and not the environment, because one box runs
+runtime name Onebox derives (the Compose project, container names, volume
+names) carries the application and not the environment, because one box runs
 one application. Point staging at production's server and nothing collides:
 staging finds names that look like its own and adopts production's containers
 and volumes. The owner record is the only place that difference is visible,
 which is why it records the environment.
 
 A host claimed before environments were recorded carries the application alone.
-That still identifies the owner, so it is honoured rather than refused; the next
+That still identifies the owner, so it is honoured; the next
 `ob bootstrap` completes the record.
 
-`ob bootstrap` is the one mutation that may claim an unowned host — that is what
-it is for. Every other mutation requires the record to exist and to name this
+`ob bootstrap` is the one mutation that may claim an unowned host. Every other mutation requires the record to exist and to name this
 application, so a mistyped target cannot silently adopt a machine by deploying
 to it. `ob preflight` reads without claiming, and reports an unowned host as
-ready rather than as a failure.
+ready.
 
 The check fails closed in both directions. An owner file that cannot be read is
-not treated as an absent one — "unowned" and "unreadable" would otherwise be the
+not treated as an absent one; "unowned" and "unreadable" would otherwise be the
 same answer, and the wrong one is destructive.
 
 Full destruction releases the record, which is what makes a host reusable for a
-different application rather than permanently claimed. Partial destruction does
+different application. Partial destruction does
 not: while volumes or service credentials remain, the record stays, because
 every command is gated on it and releasing early would strand the owner outside
 their own data.
@@ -94,36 +89,23 @@ their own data.
 ## The boundary cuts both ways
 
 If Onebox owns a supporting database, it must say exactly when that ownership
-includes recovery. A boundary that only ever expands is a marketing claim, not
-an engineering one.
+includes recovery.
 
 PostgreSQL has an executable backup contract, but declaring it is only a
 request. Protection begins after `ob backup enable` has installed the runtime,
 enabled continuous archiving, and taken the first base backup. Workload volumes
 are not covered, and every other durable driver refuses a backup policy rather
-than accepting one it cannot honour. `ob doctor` reports every durable surface
-that still has no off-host copy, because silence there would read as approval.
+than accepting one it cannot honour. See [unprotected data](/docs/reference/capabilities#not-owned-at-all).
 
-:::caution[The failure this prevents]
-A product description that reads as a capability list is how an operator ends up
-believing their database is backed up by something that has never taken a backup.
-:::
+See [why capability status is published](/docs/reference/capabilities#why-the-distinction-is-published).
 
 ## Where the line is not
 
-Onebox owns the box, not the world:
-
-- A customer with root can still bypass it.
-- A compromised host can lie about its own evidence.
-- Onebox does not claim universal reversibility, high availability, or
-  protection from an adversarial infrastructure provider.
-
-Those are limits of the arrangement, not gaps in it.
+See the [bounded safety guarantees](/docs/reference/policies#safety-claims-are-bounded).
 
 ## Supporting services and guarantee levels
 
-Breadth and honesty are reconciled by making the guarantee level part of the
-contract and visible wherever the service appears. A service is either
+The guarantee level is part of the contract and shown wherever the service appears. A service is either
 user-authored or Onebox-managed, never both.
 
 Every durable driver runs pinned, persisted, health-gated, capped, observed, and
@@ -132,5 +114,5 @@ contract today: continuous archiving, point-in-time restore, repository status,
 and an on-demand recovery drill. Other drivers remain explicit about the missing
 contract and refuse `backup` at validation.
 
-The ordering is the point: a declaration is never presented as proof that
+A declaration is never presented as proof that
 protection is running. See [Evidence, not declaration](/docs/concepts/evidence-not-declaration).

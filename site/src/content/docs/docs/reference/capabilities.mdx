@@ -1,7 +1,7 @@
 ---
 title: Shipped vs proposed
 description: What the current binary does, what the schema accepts but cannot execute, and what is only declared intent.
-summary: The honest inventory — every capability marked shipped, schema-only, or intent-only, with what each means for someone relying on it.
+summary: "The capability inventory: every capability marked shipped, schema-only, or intent-only, with what each means for someone relying on it."
 sidebar:
   order: 1
 read_when:
@@ -18,7 +18,7 @@ This page is the reconciliation. Three states:
 | State | Means |
 | --- | --- |
 | **Shipped** | The current binary does this. |
-| **Schema only** | The loader validates it and it is in the published JSON Schema, so your editor completes it — but the behaviour is an open proposal. Declaring it changes nothing on the server. |
+| **Schema only** | The loader validates it and it is in the published JSON Schema, so your editor completes it, but the behaviour is an open proposal. Declaring it changes nothing on the server. |
 | **Intent only** | Validated and carried into plans, but the local engine runs nothing continuous for it. |
 
 ## Shipped
@@ -102,12 +102,11 @@ directions.
 ## Not owned at all
 
 **Workload volumes.** A workload's own durable data is not copied anywhere.
-`ob doctor` reports it for every workload holding some, because silence there
-would read as approval. Managed services are different: one declaring
-`backup` is backed up continuously and recoverable to a point in time — see
+`ob doctor` reports it for every workload holding some, so unprotected data is visible. Managed services are different: one declaring
+`backup` is backed up continuously and recoverable to a point in time; see
 the backup reference. Only the `postgres` driver has an executable contract
 today; every other driver declares `policy_qualified: false` and its backup
-policy is refused rather than accepted and ignored.
+policy is refused.
 
 For PostgreSQL, the digest-pinned Onebox image carries the compatible WAL-G
 executable. The host receives generated configuration only; no backup binary is
@@ -115,7 +114,7 @@ installed by Onebox.
 
 **Restore proof.** `ob backup drill` proves it on demand: it recovers the
 repository into a throwaway volume, waits for the cluster to promote, and makes
-it answer a query — the same code a real restore runs, stopped before the last
+it answer a query: the same code a real restore runs, stopped before the last
 step. What is *not* run is an unattended drill. Onebox puts no agent on the
 host, so the timer from `drill.schedule` runs the archive-continuity check
 instead, and the full proof is yours to run from CI on the cadence your policy
@@ -130,10 +129,9 @@ a distinct, evidence-backed workflow, not failover.
 
 ## Why the distinction is published
 
-> A product direction that reads as a capability list is how an operator ends up
-> believing their database is backed up by something that has never taken a
-> backup.
+A product direction presented as a capability list can lead an operator to
+believe their database is backed up before any backup has been taken.
 
 A capability ships only when its design is agreed, its tests pass, and the
 generated reference and this page are updated from proposed to implemented.
-Until then it appears here, in this column, and not in the other one.
+Until then it remains listed as proposed.

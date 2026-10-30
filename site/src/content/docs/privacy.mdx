@@ -14,7 +14,6 @@ This page is about **this website**, `onebox.run`. It is not about the `ob`
 binary. Onebox runs on your machine and talks to your server over SSH; it has no
 phone-home, no licence check and no usage beacon, and it reports nothing to us
 about the hosts you deploy to, the workloads you run, or the plans you apply.
-Nothing on this page changes that, because nothing on this page is in it.
 
 ## Website analytics
 
@@ -36,7 +35,7 @@ removed the header, and the browsers that still send one leave it off by
 default, so it says nothing reliable about what a reader wants.
 
 Which of these applies is decided from the country Cloudflare reports for your
-connection. If that lookup fails, the site asks rather than assumes.
+connection. If that lookup fails, the site asks for consent.
 
 ### What is sent
 
@@ -53,15 +52,15 @@ Two things are cut down before they leave the browser:
 - **The referrer is reduced to its site.** We record that you came from a search
   engine, not what you searched for.
 
-Google's advertising features are switched off — no Google Signals, no ad
-personalisation, and ad data redaction is on — so the data is not used to build
+Google's advertising features are switched off (no Google Signals, no ad
+personalisation, and ad data redaction is on) so the data is not used to build
 an advertising profile of you.
 
 ### What is never sent
 
 Nothing you enter anywhere is collected, because this site has no forms, no
 accounts, no search box that reports what you typed, and no session recording or
-heatmaps. It does not attempt to identify you. And, to say it once more: no
+heatmaps. It does not attempt to identify you. No
 hostname, address, credential, plan or release from your own Onebox deployments
 passes through this site.
 
@@ -91,5 +90,5 @@ you allow analytics.
 Questions about this page belong in
 [an issue](https://github.com/labstack/onebox/issues). The site's source,
 including the analytics code described here, is in
-[the repository](https://github.com/labstack/onebox/tree/main/site) — this page
-describes what that code does, and the code is the thing you can check.
+[the repository](https://github.com/labstack/onebox/tree/main/site); this page
+describes what that code does.

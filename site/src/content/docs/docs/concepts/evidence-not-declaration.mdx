@@ -1,27 +1,23 @@
 ---
 title: Evidence, not declaration
 description: Why a field in a file is never allowed to assert that something is true on the host.
-summary: The principle that separates what you declared from what is observed — and how it shapes approval, tiers, drift, and structured output.
+summary: "The principle that separates what you declared from what is observed, and how it shapes approval, tiers, drift, and structured output."
 sidebar:
   order: 2
 read_when:
   - "Understanding why an approval is separate from a plan"
   - "Understanding why declaring protection would not establish it"
-  - "Designing something that has to report status honestly"
+  - "Designing something that has to report status accurately"
 ---
 
-A configuration file records what you **want**. It cannot record what is **true**.
-Most tools blur that line, and the blur is where operators get hurt: a field
-called `backup: true` reads as a fact about the host when it is only a sentence
-in a file.
-
-Onebox keeps the two apart everywhere.
+A configuration file records what you want, not what is true on the host;
+`backup: true` is only a line in a file. Onebox keeps the two apart.
 
 ## Approval is not model intent
 
 > A statement that the user approved is data, not authority.
 
-The current CLI requires a deliberate local human ceremony bound to the exact
+The current CLI requires a local human ceremony bound to the exact
 sealed plan, operator label, server, observed state, inputs, risk, and expiry.
 `ob plan` and `ob approve` are separate commands so the reviewed object and the
 answer cannot drift unnoticed. The resulting `local_cli` artifact is
@@ -52,13 +48,12 @@ while, **all at once**:
 Any one of those expiring returns the service to `Run` immediately. Historical
 proof stays visible but cannot be mistaken for current protection.
 
-That is a deliberately expensive bar. A cheaper one — trusting the policy block —
-would produce a green tier for a service whose backups have been failing for a
-month.
+Trusting the policy block alone would report a protected service even if its
+backups had been failing for a month.
 
 :::note[Tier and envelope are separate]
-`Managed` would always be accompanied by the recovery kind — `snapshot`, `pitr`
-or `cold` — plus the observed recovery point and measured restore time. Otherwise
+`Managed` would always be accompanied by the recovery kind (`snapshot`, `pitr`
+or `cold`) plus the observed recovery point and measured restore time. Otherwise
 "managed Redis" reads as point-in-time recovery it does not have.
 :::
 
@@ -67,17 +62,15 @@ or `cold` — plus the observed recovery point and measured restore time. Otherw
 Read commands do not repair, converge, prune or create. `ob status` and
 `ob doctor` read evidence; they never trigger the check that produces it.
 
-In the proposed assurance layer this is structural rather than promised: the
-check process has no converge methods in its operation graph at all.
+In the proposed assurance layer, the check process has no converge methods
+in its operation graph.
 
 ## Origins are published
 
-`ob canonical` annotates every value you did not write — `# default`,
-`# shorthand`, `# override`. The same idea appears in structured output, which
-labels authored, default, environment-override, observed and derived values.
-
-Knowing that `retainReleases: 5` was Onebox's choice rather than yours is the
-difference between reviewing a configuration and reading one.
+See [origin annotations](/docs/get-started/reading-it-back#ob-canonical-is-the-one-to-read-in-review)
+for `ob canonical`, including `# default`, `# shorthand`, `# override` and defaults
+such as `retainReleases: 5`. Structured output labels authored, default,
+environment-override, observed and derived values.
 
 ## Checkout provenance
 
@@ -99,9 +92,7 @@ worthless once that state may have moved.
 
 ## What this costs
 
-Honest evidence produces worse-looking status pages. A service that oscillates
+Observed evidence can produce worse-looking status pages. A service that oscillates
 between `Managed` and `Run` because a drill keeps being deferred for disk space
 looks broken, where a tool that trusted the declaration would look fine.
 
-The alternative is worse. A green light that does not depend on anything being
-true is not a green light.

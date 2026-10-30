@@ -1,7 +1,7 @@
 ---
 title: What Onebox refuses
 description: The refusals worth knowing, and the principle behind all of them.
-summary: Onebox fails at load rather than silently weakening a declaration. The pattern, the refusals most likely to surprise you, and why force cannot override them.
+summary: Onebox refuses declarations it cannot honour. The pattern, the refusals most likely to surprise you, and why force cannot override them.
 sidebar:
   order: 4
 read_when:
@@ -9,10 +9,7 @@ read_when:
   - "Deciding whether a refusal is a bug or a design decision"
 ---
 
-The pattern is one sentence:
-
-> A declaration Onebox cannot honour fails at load, rather than becoming
-> something weaker that looks like it worked.
+> Onebox refuses declarations it cannot honour.
 
 Every refusal below follows from it. The full list is the
 [error code catalogue](/docs/reference/errors), generated from the binary: validation
@@ -21,55 +18,49 @@ command runs, and the lifecycle failure contract.
 
 ## The ones most likely to surprise you
 
-**`strategy_ungated`** — asking for `strategy: rolling` without a health check.
+**`strategy_ungated`**: asking for `strategy: rolling` without a health check.
 A rolling release stands the newcomer up and waits for it to report healthy;
 with nothing to wait for, "rolling" would silently mean "recreate with extra
-steps". So it is refused rather than downgraded.
+steps". So it is refused.
 
-**`schedule_untranslatable`** — a cron expression whose meaning the host's
-scheduler cannot preserve. A day-of-month *and* a day-of-week together is the
-usual case: cron treats it as "either matches", so `0 2 1 * 1` fires on the 1st
-**and** every Monday. Refused at load rather than running on days nobody chose.
+**`schedule_untranslatable`**: a cron expression whose meaning the host's
+scheduler cannot preserve. See [exact cron translation](/docs/guides/cron-jobs#cron-is-translated-exactly-or-refused).
 
-**`unknown_service_driver`** — a driver outside the closed set of eleven.
-Inventing an image from a name produces a container that starts and stores
-nothing durable, which is worse than an error.
+**`unknown_service_driver`**: a driver outside the closed set of eleven.
+See the [driver catalogue](/docs/reference/drivers).
 
-**`connection_variable_claimed`** — an authored value claiming a name a
-managed-service connection supplies. The credential is generated on the server
-and exists nowhere else; ordering could not protect it, so validation does.
+**`connection_variable_claimed`**: an authored value claiming a name a
+managed-service connection supplies. See [connection-variable validation](/docs/guides/databases#reaching-a-pooler-or-a-read-replica).
 
-**`route_collision`** — two workloads claiming the same entrypoint, protocol,
+**`route_collision`**: two workloads claiming the same entrypoint, protocol,
 hostname and path. The proxy would accept both and route to one, and nothing would
 say which.
 
-**`stateful_replicas`** — a workload keeping durable state asking for more than
+**`stateful_replicas`**: a workload keeping durable state asking for more than
 one replica.
 
-**`override_not_permitted`** — an environment override touching anything outside
+**`override_not_permitted`**: an environment override touching anything outside
 the permitted set. An environment may override exactly `replicas`, `resources`,
 `env`, `envFiles`, `strategy` and `routes`; everything else, `image` and
-`command` and `volumes` among them, is refused. It is an allow-list rather than
-a deny-list because the question is not "which fields are dangerous" but "which
-fields can differ while this is still the same application" — a staging
-environment that can swap the image is a different application wearing the same
-name.
+`command` and `volumes` among them, is refused. It is an allow-list of fields that can differ while this is still the same
+application; a staging environment with a different image is a different
+application under the same name.
 
-**`service_settings_unsupported`** — a setting declared for a driver with no
+**`service_settings_unsupported`**: a setting declared for a driver with no
 mechanism to read it. Silently ignoring it would leave you believing it applied.
 
-**A rolling workload publishing a host port** — two replicas cannot both hold
+**A rolling workload publishing a host port**: two replicas cannot both hold
 `8080` on the host, so the roll would either fail halfway or quietly become a
 recreate. Either give the workload `strategy: recreate`, or drop
 `publishedPorts` and route to it through the proxy. This one arrives as a plain
-`project_invalid` today rather than a dedicated code.
+`project_invalid` today, with no dedicated code.
 
-**`host_owner_mismatch`** — a second application trying to mutate a host that
+**`host_owner_mismatch`**: a second application trying to mutate a host that
 already belongs to one. Not a load-time refusal: it comes from the host itself,
 before anything changes. See [the ownership
 boundary](/docs/concepts/ownership-boundary).
 
-**`host_environment_mismatch`** — a second *environment* of the same application
+**`host_environment_mismatch`**: a second *environment* of the same application
 trying to mutate a host another environment claimed. Container and volume names
 carry the application, not the environment, so the two would not collide: the
 newcomer would adopt what is already there. See [the ownership
@@ -77,20 +68,12 @@ boundary](/docs/concepts/ownership-boundary).
 
 ## Where a refusal is about safety, not tidiness
 
-Application rollback, data recovery, and reversal of an external side effect are
-different operations with different guarantees. Onebox classifies the risk and
-refuses when evidence or a driver contract is insufficient.
-
-:::danger[Force cannot make an unsupported operation safe]
-A force flag changes what you are permitted to attempt. It does not change what
-the engine can prove. Where safety cannot be proven, the operation stops and
-exposes honest recovery choices instead of proceeding.
-:::
+See the [bounded safety guarantees](/docs/reference/policies#safety-claims-are-bounded)
+and the [recovery overrides](/docs/guides/rollback#when-recovery-refuses).
 
 A missing or invalid job result from a migration becomes `changed=unknown` and
 halts **before** workload replacement, unless a strong or break-glass local confirmation
-authorized that exact plan. The unknown is treated as the dangerous case, because
-it is.
+authorized that exact plan. An unknown result is treated as the dangerous case.
 
 ## Refusals carry the way out
 
@@ -108,11 +91,6 @@ classified as **diagnostic**, **next**, or **resolving**. It is validated to sta
 with `ob ` and to contain no credential material. An agent can branch on the
 code without mistaking a read-only inspection for a repair.
 
-## Codes are promises
+## Stable error codes
 
-> A code names a kind of failure that will keep meaning the same thing across
-> releases.
-
-Adding one is a deliberate act. A test refuses any code the loader emits that is
-not enumerated, and any enumerated code that nothing emits — so the catalogue
-cannot drift in either direction. Branch on the code, never on the sentence.
+See the [error-code contract](/docs/reference/errors).

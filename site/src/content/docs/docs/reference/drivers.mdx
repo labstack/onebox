@@ -18,12 +18,8 @@ The driver set is **closed**. A declaration naming a driver outside it is refuse
 with `unknown_service_driver`, listing the drivers Onebox can run and directing
 you to a `daemon` workload.
 
-That is deliberate: inventing an image from a name produces a container that
+Inventing an image from a name produces a container that
 starts and stores nothing durable.
-
-The runtime and connection tables are generated from the private driver catalogue.
-The guidance and limitations below remain deliberately authored in the generator:
-they are product explanations, not facts the catalogue can prove.
 
 ## Runtime catalogue
 
@@ -57,7 +53,7 @@ they are product explanations, not facts the catalogue can prove.
 | `redis` | Cache, queue | `url` `host` `port` `user` `password` |
 | `valkey` | Cache, queue | `url` `host` `port` `user` `password` |
 
-A part the driver does not have — a database on a cache — is omitted rather than
+A part the driver does not have (a database on a cache) is omitted, never
 written empty. Every driver has a password part; `redis` and `valkey` have a
 user part because Redis 6+ authenticates the built-in `default` user, and a URL
 with an empty username fails AUTH outright.
@@ -86,8 +82,8 @@ reads.
 
 - **The service outlives every release.** Its own Compose project; no deploy and
   no rollback stops it or removes its volume.
-- **The credential is generated on the server, once.** Not in your project, the
-  generated runtime, or the digest. Never rotated by a re-apply.
+- **The credential is generated on the server, once.** It is absent from your project,
+  the generated runtime, and the digest. A re-apply never rotates it.
 - **The version binds into the release digest**, so a database upgrade under an
   untouched application cannot pass unnoticed.
 
@@ -109,27 +105,26 @@ than silently ignored.
 
 :::caution[`mongodb` runs a standalone server, not a replica set]
 Change streams and multi-document transactions need a replica set. An application
-using either will connect, authenticate, and *then* fail — Rocket.Chat reports
+using either will connect, authenticate, and then fail. Rocket.Chat reports
 `The $changeStream stage is only supported on replica sets`.
 
 Onebox does not configure a replica set, so an application that needs one wants a
-`daemon` workload it owns. This is a limitation of the driver rather than of the
-contract, and it is stated here because the failure appears in the application's
-logs rather than in anything Onebox says.
+`daemon` workload it owns. The failure appears in the application's logs,
+not in Onebox output.
 :::
 
 :::caution[Only `postgres` is backed up]
 `postgres` is the one driver with an executable backup contract: declaring
 `backup` on it gives a continuous off-host archive and point-in-time recovery.
 Every other driver declares `policy_qualified: false`, so a backup policy on it
-is refused at `ob validate` rather than accepted and left to do nothing — and its
+is refused at `ob validate`; its
 data lives only on this host until you copy it off yourself.
 
 Onebox also refuses a major version change a driver cannot perform in place,
 rather than replacing the container and leaving the data intact and unreachable.
 
-For `postgres`, declaring `backup` changes this — see
-[Shipped vs proposed](/docs/reference/capabilities).
+For `postgres`, a `backup` block changes this once `ob backup enable` succeeds;
+see [Declaring is not enabling](/docs/guides/backups#declaring-is-not-enabling).
 :::
 
 ## Anything else

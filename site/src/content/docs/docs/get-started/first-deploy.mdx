@@ -1,7 +1,7 @@
 ---
 title: Your first deploy
 description: From an existing Compose file to a released application, in one pass.
-summary: The full path — scaffold ob.yml, inspect what Onebox understood, plan, approve, deploy — with the plan and local-confirmation artifacts explained.
+summary: The full path (scaffold ob.yml, inspect what Onebox understood, plan, approve, deploy) with the plan and local-confirmation artifacts explained.
 sidebar:
   order: 3
 read_when:
@@ -10,9 +10,6 @@ read_when:
 ---
 
 import { Steps, FileTree } from '@astrojs/starlight/components';
-
-This is the whole path, once. Every command below either states that it contacts
-nothing, or is explicit about what it changes.
 
 ## Before you start
 
@@ -24,13 +21,10 @@ You need:
   available to that SSH account
 - the server's host key already recorded in `known_hosts`
 
-If the server has no public SSH port, name the bastion it is reached through —
-see [Deploy through a jump host](/docs/guides/jump-host).
+If the server has no public SSH port, name the bastion it is reached through; see [Deploy through a jump host](/docs/guides/jump-host).
 
-The first three steps are local and contact nothing. `ob bootstrap` is the first
-command that changes the server. `ob preflight` then reads the provisioned host
-without changing it or contacting a registry; the plan after it is also
-read-only.
+The first three steps are local; later steps state when they contact or change
+the server.
 
 ## Deploy once
 
@@ -47,9 +41,8 @@ read-only.
    that match what `ob validate` will say.
 
    :::caution
-   `ob init` is a starting point, not permission to deploy. Review workload
-   types, persistence semantics, readiness, job data effects, and the environment
-   server before running a plan.
+   Review the scaffolded `ob init` output before running a plan: workload types,
+   persistence semantics, readiness, job data effects, and the environment server.
    :::
 
 2. **Check the contract. Nothing is contacted.**
@@ -77,9 +70,8 @@ read-only.
    `ob canonical` marks each value with where it came from: `# default` for one
    Onebox chose, `# shorthand` for a top-level key it moved into a workload,
    `# override` for one an environment supplied. `ob preview` prints the Compose
-   runtime it will generate. Read both before the first deploy — the difference
-   between a value someone chose and one that appeared by itself is what a
-   person checking a production configuration needs to see.
+   runtime it will generate. Read both before the first deploy; see
+   [origin annotations](/docs/get-started/reading-it-back#ob-canonical-is-the-one-to-read-in-review).
 
 4. **Prepare the host.** This contacts and changes the server.
 
@@ -87,7 +79,7 @@ read-only.
    ob bootstrap
    ```
 
-5. **Check host readiness.** This contacts the server but changes nothing.
+5. **Check host readiness.** This contacts the provisioned server but changes nothing and contacts no registry.
 
    ```sh
    ob preflight
@@ -210,7 +202,7 @@ moving data.
 
 ## Why plan and local confirmation are separate
 
-The split creates a deliberate review ceremony and binds the answer to one exact
+The split creates a review ceremony and binds the answer to one exact
 sealed plan. `ob approve` records a short-lived local confirmation whose digest
 detects modification; it is not authenticated identity or proof that the actor
 requesting the change was technically unable to create it. Environments that
@@ -227,8 +219,8 @@ ob deploy --output ndjson --plan ob-plan.json --approval ob-approval.json
 ```
 
 `ob approve` always prompts and there is no flag to skip it. A routine plan asks
-yes or no; one that touches data — a migration, a destructive job, or an
-unknown data effect — asks for the plan's identity to be typed back: the release
+yes or no; one that touches data (a migration, a destructive job, or an
+unknown data effect) asks for the plan's identity to be typed back: the release
 ID for a deploy, the job name for a job run. It reads the answer from stdin
 without checking for a terminal, so a pipeline supplies `y`, or that identity
 for the stronger ceremony. Anything else records nothing and exits cancelled.

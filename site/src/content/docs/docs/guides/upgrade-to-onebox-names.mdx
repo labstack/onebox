@@ -16,52 +16,6 @@ Onebox does not look for the old names, labels, paths or units, read from them,
 or remove them. Prepare the host with the steps below **before** the first
 command with the new version.
 
-## What changes
-
-| Resource | Before | After |
-| --- | --- | --- |
-| State directory | `/var/lib/ob/shop` | `/var/lib/onebox/app` |
-| Host state | `/var/lib/ob/_host` | `/var/lib/onebox/_host` |
-| Owner record | `shop` or `shop production` | `shop production` only |
-| Ownership labels | `ob.app`, `ob.workload`, `ob.service`, … | `onebox.app`, `onebox.workload`, `onebox.service`, … |
-| Managed service container | `shop-postgres-1` | `onebox-postgres` |
-| Restore-drill container | `shop-postgres-restore-1` | `onebox-postgres-restore` |
-| Volumes | `ob_shop_postgres_data` | `onebox_postgres_data` |
-| Service Compose project | `ob_shop_postgres` | `onebox_postgres` |
-| Service network | `ob_shop` | `onebox_services` |
-| Ingress network | `ob-ingress` | `onebox-ingress` |
-| Scheduled job units | `ob-shop-nightly` | `onebox-job-nightly` |
-| Backup units | `ob-backup-shop-production-postgres-backup` | `onebox-backup-postgres-backup` |
-| Proxy routers | `shop_web_r0` | `onebox_web_r0` |
-| Job run journal identifier | `ob-run` | `onebox-run` |
-| Files Onebox keeps beside its own | `.ob-schedule.lease`, `.ob-secret-generations/`, `.ob-tmp` | `.onebox-schedule.lease`, `.onebox-secret-generations/`, `.onebox-tmp` |
-| Drain marker in containers | `/tmp/ob-drain` | `/tmp/onebox-drain` |
-| Release snapshot | `ob.snapshot.yml` | `onebox.snapshot.yml` |
-| Workload containers | `shop-web-1` | unchanged, but labelled `onebox.app` |
-| Application network | `shop_default` | unchanged, but labelled `onebox.app` |
-
-Application names may no longer be `onebox` or begin with `onebox-`. Service
-names may not be `proxy`, `discovery`, `ingress` or `services`. Custom Traefik objects may
-not begin with `onebox_`. The default `basePath` is now `/var/lib/onebox`; if
-you set your own, the application's state moves to `<basePath>/app`. Host state
-is always `/var/lib/onebox/_host` now, whatever `basePath` says.
-
-## What happens without these steps
-
-- **Every command reports an unowned host.** The owner record is read from
-  `/var/lib/onebox/_host/owner`, which does not exist yet. `ob bootstrap` would
-  claim the host again from scratch.
-- **Deploys are refused.** `shop-web-1` and `shop_default` still carry the old
-  `ob.app` label, so preflight reports them as held by a resource Onebox does
-  not own. Docker cannot relabel a container or network.
-- **Unprotected services start empty** if the deploy gets that far. A service
-  without `backup` starts on a new, empty `onebox_` volume.
-- **Protected PostgreSQL refuses to apply**, because its recorded data volume is
-  missing.
-- **Old timers keep firing.** The `ob-shop-*` and `ob-backup-shop-*` units stay
-  enabled and run jobs and backups against the old state directory, next to the
-  new units.
-
 ## Move the host
 
 Run the host steps as root. Set `APP` to your application name and `ENV` to the
@@ -165,3 +119,49 @@ but not for `_host`: that moves from `<basePath>/_host` to
 Releases deployed before the upgrade stay in `releases/`, but their Compose
 files name the old volumes and paths. Do not roll back to them; roll back only
 to releases deployed after step 6.
+
+## What changes
+
+| Resource | Before | After |
+| --- | --- | --- |
+| State directory | `/var/lib/ob/shop` | `/var/lib/onebox/app` |
+| Host state | `/var/lib/ob/_host` | `/var/lib/onebox/_host` |
+| Owner record | `shop` or `shop production` | `shop production` only |
+| Ownership labels | `ob.app`, `ob.workload`, `ob.service`, … | `onebox.app`, `onebox.workload`, `onebox.service`, … |
+| Managed service container | `shop-postgres-1` | `onebox-postgres` |
+| Restore-drill container | `shop-postgres-restore-1` | `onebox-postgres-restore` |
+| Volumes | `ob_shop_postgres_data` | `onebox_postgres_data` |
+| Service Compose project | `ob_shop_postgres` | `onebox_postgres` |
+| Service network | `ob_shop` | `onebox_services` |
+| Ingress network | `ob-ingress` | `onebox-ingress` |
+| Scheduled job units | `ob-shop-nightly` | `onebox-job-nightly` |
+| Backup units | `ob-backup-shop-production-postgres-backup` | `onebox-backup-postgres-backup` |
+| Proxy routers | `shop_web_r0` | `onebox_web_r0` |
+| Job run journal identifier | `ob-run` | `onebox-run` |
+| Files Onebox keeps beside its own | `.ob-schedule.lease`, `.ob-secret-generations/`, `.ob-tmp` | `.onebox-schedule.lease`, `.onebox-secret-generations/`, `.onebox-tmp` |
+| Drain marker in containers | `/tmp/ob-drain` | `/tmp/onebox-drain` |
+| Release snapshot | `ob.snapshot.yml` | `onebox.snapshot.yml` |
+| Workload containers | `shop-web-1` | unchanged, but labelled `onebox.app` |
+| Application network | `shop_default` | unchanged, but labelled `onebox.app` |
+
+Application names may no longer be `onebox` or begin with `onebox-`. Service
+names may not be `proxy`, `discovery`, `ingress` or `services`. Custom Traefik objects may
+not begin with `onebox_`. The default `basePath` is now `/var/lib/onebox`; if
+you set your own, the application's state moves to `<basePath>/app`. Host state
+is always `/var/lib/onebox/_host` now, whatever `basePath` says.
+
+## What happens without these steps
+
+- **Every command reports an unowned host.** The owner record is read from
+  `/var/lib/onebox/_host/owner`, which does not exist yet. `ob bootstrap` would
+  claim the host again from scratch.
+- **Deploys are refused.** `shop-web-1` and `shop_default` still carry the old
+  `ob.app` label, so preflight reports them as held by a resource Onebox does
+  not own. Docker cannot relabel a container or network.
+- **Unprotected services start empty** if the deploy gets that far. A service
+  without `backup` starts on a new, empty `onebox_` volume.
+- **Protected PostgreSQL refuses to apply**, because its recorded data volume is
+  missing.
+- **Old timers keep firing.** The `ob-shop-*` and `ob-backup-shop-*` units stay
+  enabled and run jobs and backups against the old state directory, next to the
+  new units.

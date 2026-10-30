@@ -1,7 +1,7 @@
 ---
 title: What Onebox is
 description: The ownership boundary, the scope, and who this is for.
-summary: What Onebox owns on the box, what stays yours, and the scope it deliberately refuses. Read before deciding whether it fits.
+summary: What Onebox owns on the box, what stays yours, and the scope it refuses. Read before deciding whether it fits.
 sidebar:
   order: 1
 read_when:
@@ -10,10 +10,9 @@ read_when:
 ---
 
 Onebox is the production-operations layer for an application intentionally
-running on one server. It supplies typed perception, bounded intent, durable
-state, exact approval, and a fenced execution engine — so that releasing,
-recovering, and maintaining that application is something a person or an agent
-can do without assembling it from shell scripts.
+running on one server. It supplies state-bound plans, exact approvals, locks, fencing, and durable
+journals so a person or an agent can release, recover, and maintain the
+application without assembling those operations from shell scripts.
 
 ## The ownership boundary
 
@@ -24,7 +23,7 @@ Inside that boundary, Onebox owns the generated application runtime: the proxy,
 TLS, networks, release staging, supporting data services, scheduled jobs, locks,
 and the evidence needed to operate them safely.
 
-That sentence is the **direction**, not an inventory. Owned today:
+That sentence states the direction. Owned today:
 
 - host bootstrap and the container runtime check
 - the proxy and its TLS
@@ -37,7 +36,7 @@ That sentence is the **direction**, not an inventory. Owned today:
 
 **Not owned today:** host or Docker installation, workload-volume backups,
 backup contracts for non-PostgreSQL drivers, unattended full recovery drills,
-and log rotation. Onebox says so rather than implying otherwise.
+and log rotation.
 
 :::caution[Why the distinction matters]
 A declared backup policy is not protection. PostgreSQL becomes protected only
@@ -48,11 +47,11 @@ and taken the first base backup.
 ## Scope
 
 One application per environment, on one active production host. That application
-may have as many workloads as it needs — a server, workers, jobs, databases,
-caches, a proxy — but the unit Onebox owns is the application, and a host runs
+may have as many workloads as it needs (a server, workers, jobs, databases,
+caches, a proxy) but the unit Onebox owns is the application, and a host runs
 one of them.
 
-That last part is enforced, not advisory. `ob bootstrap` writes an owner record
+`ob bootstrap` enforces this by writing an owner record
 on the host, and every command that changes anything checks it first. Point a
 second application at the same machine and it refuses before touching anything:
 
@@ -62,7 +61,7 @@ host is owned by application "shop"; application "blog" cannot mutate it
 
 The record is released only when nothing of the application is left: volumes
 removed, and the proxy removed too if this application manages it. Keeping it
-while data survives is deliberate — ownership is what lets you come back and run
+while data survives lets you come back and run
 `ob destroy --volumes`, and a host released early is one whose remaining volumes
 its owner can no longer reach. `ob destroy` tells you which command releases it.
 `ob preflight` reports the current owner, and passes on a host nobody has claimed
@@ -80,12 +79,11 @@ Onebox is **not**:
 
 ## The interface is the CLI
 
-The CLI is the product interface, for people and for agents. It is not a fallback
-or a transitional path.
+The CLI is the product interface, for people and for agents.
 
 There is no MCP surface. A read-only tool list constrains nothing when every
 mutation goes through the CLI anyway and the agent can run `ob deploy` in a
-shell — the boundary it appears to provide does not exist. Point an agent at the
+shell; the boundary it appears to provide does not exist. Point an agent at the
 `ob` binary the way you would point it at `git` or `gh`.
 
 ## Where to go next
@@ -93,4 +91,4 @@ shell — the boundary it appears to provide does not exist. Point an agent at t
 - [Install](/docs/get-started/install), then [your first deploy](/docs/get-started/first-deploy).
 - [The ownership boundary](/docs/concepts/ownership-boundary) explains why this
   framing drives the rest of the design.
-- [Shipped vs proposed](/docs/reference/capabilities) is the honest inventory.
+- [Shipped vs proposed](/docs/reference/capabilities) lists the current capabilities.

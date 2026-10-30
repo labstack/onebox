@@ -34,7 +34,7 @@ environments:
 `ob doctor` reports whether the runner selected by `PATH` is compatible.
 
 :::caution[Commit-derived and dirty builds fail closed]
-When a minimum version is configured, they are refused — they are not released
+When a minimum version is configured, they are refused because they are not released
 runners. An environment that pins a minimum is asking for a runner whose identity
 can be checked, and a dirty working tree has none.
 :::
@@ -63,10 +63,10 @@ changed or expired plan or report needs a new confirmation.
 Migrations, destructive effects and unknown data effects use the **strong
 ceremony**, where the operator types back what the plan acts on: the release ID
 for a deploy, the job name for a job run. A deploy mints the release it names,
-while a job runs inside the release already serving — which every job planned
-against that release shares — so the job is what identifies it.
+while a job runs inside the release already serving (which every job planned
+against that release shares) so the job is what identifies it.
 
-A operator job carrying one of those effects asks whether or not approval policy
+An operator job carrying one of those effects asks whether or not approval policy
 is enabled. Policy decides only whether a deploy that is not critical asks at
 all.
 
@@ -124,8 +124,7 @@ stores command bytes or passthrough output.
 ### Exit codes
 
 Three codes, and the set is closed. Every failure is `1`: there is no second
-failure code, because which failure it was is the error `code` in the envelope
-rather than the exit status.
+failure code, because which failure it was is the error `code` in the envelope. The exit status does not distinguish failures.
 
 | Code | Means |
 | --- | --- |
@@ -163,7 +162,7 @@ really has it. Adding one without documenting it fails the build, and so does
 documenting one that does not exist.
 
 The identities above are not held to that standard. Only
-`onebox.run/cli/v1alpha1` is asserted, and only in one direction — that the page
+`onebox.run/cli/v1alpha1` is asserted, and only in one direction: that the page
 mentions it somewhere. The other five are maintained by hand and could drift
 without failing the build.
 :::
@@ -183,7 +182,9 @@ editor tells you while you type is what `ob validate` tells you afterwards.
 Application rollback, data recovery, and reversal of an external side effect are
 different operations with different guarantees. Onebox classifies risk and
 refuses when evidence or a driver contract is insufficient. **A force flag cannot
-turn an unsupported operation into a safe one.**
+turn an unsupported operation into a safe one.** Override flags permit a specific
+attempt; they do not change what the engine can prove. When evidence is
+insufficient, Onebox stops and reports the available recovery choices.
 
 A customer with root can still bypass Onebox, and a compromised host can lie
 about its own evidence. Onebox does not claim universal reversibility, high

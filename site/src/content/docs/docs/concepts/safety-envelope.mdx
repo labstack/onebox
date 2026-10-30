@@ -1,6 +1,6 @@
 ---
 title: The safety envelope
-description: Locks, fencing, journals, drift, expiry — the machinery that makes an interrupted operation recoverable.
+description: "Locks, fencing, journals, drift, expiry: the machinery that makes an interrupted operation recoverable."
 summary: "How Onebox makes execution resumable and reversible: application and host locks, fencing epochs, append-only journals, state-bound plans, and what each protects against."
 sidebar:
   order: 5
@@ -17,11 +17,10 @@ and files on the host.
 ## The pieces
 
 **Locks.** An application lock, and a host lock above it. Operations that would
-interfere serialize rather than race.
+interfere are serialized.
 
 **Fencing epochs.** A stale process that wakes up after losing its lock cannot
-act: its epoch no longer matches. This is what makes "the CLI lost the
-connection" survivable rather than dangerous.
+act: its epoch no longer matches. This prevents a stale process from acting after the CLI loses its connection.
 
 The epoch is durable authority, not a disposable counter. Onebox treats only a
 genuinely absent epoch file as a first run. If the file exists but is unreadable,
@@ -65,18 +64,17 @@ An approval says: *this exact change, against this exact observed state, is
 authorised*. The moment the observed state may have moved, the approval is
 describing something that no longer exists.
 
-Fifteen minutes is short enough that "the plan I approved" and "the state on the
-host" are still the same claim. Longer, and approval quietly degrades into
-permission to do something nobody looked at.
+The fifteen-minute expiry limits how long an approval can refer to an earlier
+observation. After expiry, the operator must review a new plan.
 
 ## Retry is safe by construction
 
 Mutations are idempotent under retry. Retrying with the same operation identity
-resumes or returns the existing terminal result rather than creating an untracked
+resumes or returns the existing terminal result without creating an untracked
 duplicate.
 
 That property is why the CLI is usable from CI and from an agent: a lost
-connection is an inconvenience, not an incident. A retry first inspects the
+connection can be retried safely. A retry first inspects the
 operation identity and uses resume or status behaviour; it never blindly starts a
 second deploy.
 
@@ -96,20 +94,19 @@ and the first deploy does so for PostgreSQL services with declared extensions.
 ## What the envelope does not cover
 
 :::danger[Bounded claims]
-Onebox does **not** claim universal reversibility, high availability, or
-protection from an adversarial infrastructure provider.
+See the [bounded safety guarantees](/docs/reference/policies#safety-claims-are-bounded).
 :::
 
 - **A customer with root can bypass Onebox.** The envelope constrains Onebox's
   own operations, not the machine.
 - **A compromised host can lie about its own evidence.** Everything here assumes
-  the host reports honestly about itself.
+  the host reports accurately about itself.
 - **Rolling deployment cannot make a failed host available.** It avoids
-  interruption while the box is healthy. That is all it claims.
+  interruption while the box is healthy.
 - **Arbitrary external side effects are not reversible.** An email sent by a
   migration stays sent.
 
-## `ob exec` is deliberately outside it
+## The safety boundary of `ob exec`
 
 ```sh
 ob exec --reason "<why>" <target> -- <command>
@@ -119,20 +116,19 @@ ob exec --reason "<why>" <target> -- <command>
 is indistinguishable from an intrusion, so the reason is part of the record
 before the command runs.
 
-What Onebox guarantees here is narrow but real: exec takes the application lock
+Exec takes the application lock
 and writes the mutation fence before it resolves a container, so it cannot run
 inside a workload a concurrent deploy is replacing, and it holds that lock for
 the life of the stream. It records the operator, the target and its kind, the
 exact container, the reason, a digest of the command, and the outcome.
 
-What it does not do is claim the result. Nothing exec changes belongs to a
+Onebox makes no claim about the result. Nothing exec changes belongs to a
 release, so nothing it changes survives the next deploy in any tracked sense,
 and nothing about it is reversible by rollback. Every other command states up
 front whether it contacts the server and whether it changes anything; `ob exec`
-is the one row without a definite answer, and that is the point rather than an
-omission.
+is the one row without a definite answer.
 
-The command text itself never enters the durable record — only its digest —
+The command text itself never enters the durable record; only its digest does,
 because an operator pasting a one-off command is not thinking about whether it
 contains a credential.
 
@@ -144,5 +140,5 @@ ob audit                  # recorded operations
 ob doctor --output json   # local safety setup and runner compatibility
 ```
 
-None of these mutate. Observation cannot converge — see
+None of these mutate. Observation cannot converge; see
 [Evidence, not declaration](/docs/concepts/evidence-not-declaration).

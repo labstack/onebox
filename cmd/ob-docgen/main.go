@@ -299,7 +299,7 @@ var blocks = []block{
 			"Setting replicas, resources, volumes, published ports or drain behaviour",
 		}},
 	{Key: "services", Title: "services", Order: 20, Status: statusShipped,
-		Summary: "Supporting services Onebox runs for you — the eleven built-in drivers, their versions, settings and persistence.",
+		Summary: "Supporting services Onebox runs for you: the eleven built-in drivers, their versions, settings and persistence.",
 		ReadWhen: []string{
 			"Adding a database, cache or queue",
 			"Deciding between a managed service and a daemon workload",
@@ -327,7 +327,7 @@ var blocks = []block{
 		Summary:  "Who owns the ingress proxy, which image runs it, and how TLS is resolved.",
 		ReadWhen: []string{"Taking over the Traefik configuration, or turning routing off entirely"}},
 	{Key: "hooks", Title: "hooks", Order: 80, Status: statusShipped,
-		Summary:  "Commands run at a lifecycle seam — bootstrap, pre_release, post_release, post_deploy — or keyed by a job name to replace that job's command.",
+		Summary:  "Commands run at a lifecycle seam (bootstrap, pre_release, post_release, post_deploy) or keyed by a job name to replace that job's command.",
 		ReadWhen: []string{"Running a command around a deploy or a rollback"}},
 	{Key: "registries", Title: "registries", Order: 90, Status: statusShipped,
 		Summary:  "Named container registries and the local environment variables holding their credentials.",
@@ -336,7 +336,7 @@ var blocks = []block{
 		Summary:  "Named webhooks that receive selected operation and scheduled-job outcomes.",
 		ReadWhen: []string{"Sending deploy outcomes to Slack, Discord or an incident tool"}},
 	{Key: "backupTargets", Slug: "backup-targets", Title: "backupTargets", Order: 200, Status: statusShipped,
-		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy rather than accepting one it cannot honour.",
+		Summary:  "User-owned off-host S3-compatible repositories a protected service writes its backups to. Executable for the postgres driver; every other driver refuses a policy it cannot honour.",
 		ReadWhen: []string{"Declaring where a database's backups go", "Understanding why Onebox refuses a backup target that shares the protected host"}},
 	{Key: "externalServices", Slug: "external-services", Title: "externalServices", Order: 210, Status: statusSchemaOnly,
 		Summary:  "Typed dependencies operated outside Onebox, whose lifecycle and backups stay external. Accepted by the loader; not yet executable.",
@@ -897,12 +897,8 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf, "with `unknown_service_driver`, listing the drivers Onebox can run and directing")
 	fmt.Fprintln(&buf, "you to a `daemon` workload.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "That is deliberate: inventing an image from a name produces a container that")
+	fmt.Fprintln(&buf, "Inventing an image from a name produces a container that")
 	fmt.Fprintln(&buf, "starts and stores nothing durable.")
-	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "The runtime and connection tables are generated from the private driver catalogue.")
-	fmt.Fprintln(&buf, "The guidance and limitations below remain deliberately authored in the generator:")
-	fmt.Fprintln(&buf, "they are product explanations, not facts the catalogue can prove.")
 	fmt.Fprintln(&buf)
 
 	fmt.Fprintln(&buf, "## Runtime catalogue")
@@ -932,7 +928,7 @@ func renderDriverPage() string {
 			driver.Name, escapeCell(serviceDriverTypicalUses[driver.Name]), connectionPartsCell(driver.ConnectionParts))
 	}
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "A part the driver does not have — a database on a cache — is omitted rather than")
+	fmt.Fprintln(&buf, "A part the driver does not have (a database on a cache) is omitted, never")
 	fmt.Fprintln(&buf, "written empty. Every driver has a password part; `redis` and `valkey` have a")
 	fmt.Fprintln(&buf, "user part because Redis 6+ authenticates the built-in `default` user, and a URL")
 	fmt.Fprintln(&buf, "with an empty username fails AUTH outright.")
@@ -963,8 +959,8 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "- **The service outlives every release.** Its own Compose project; no deploy and")
 	fmt.Fprintln(&buf, "  no rollback stops it or removes its volume.")
-	fmt.Fprintln(&buf, "- **The credential is generated on the server, once.** Not in your project, the")
-	fmt.Fprintln(&buf, "  generated runtime, or the digest. Never rotated by a re-apply.")
+	fmt.Fprintln(&buf, "- **The credential is generated on the server, once.** It is absent from your project,")
+	fmt.Fprintln(&buf, "  the generated runtime, and the digest. A re-apply never rotates it.")
 	fmt.Fprintln(&buf, "- **The version binds into the release digest**, so a database upgrade under an")
 	fmt.Fprintln(&buf, "  untouched application cannot pass unnoticed.")
 	fmt.Fprintln(&buf)
@@ -988,13 +984,12 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, ":::caution[`mongodb` runs a standalone server, not a replica set]")
 	fmt.Fprintln(&buf, "Change streams and multi-document transactions need a replica set. An application")
-	fmt.Fprintln(&buf, "using either will connect, authenticate, and *then* fail — Rocket.Chat reports")
+	fmt.Fprintln(&buf, "using either will connect, authenticate, and then fail. Rocket.Chat reports")
 	fmt.Fprintln(&buf, "`The $changeStream stage is only supported on replica sets`.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "Onebox does not configure a replica set, so an application that needs one wants a")
-	fmt.Fprintln(&buf, "`daemon` workload it owns. This is a limitation of the driver rather than of the")
-	fmt.Fprintln(&buf, "contract, and it is stated here because the failure appears in the application's")
-	fmt.Fprintln(&buf, "logs rather than in anything Onebox says.")
+	fmt.Fprintln(&buf, "`daemon` workload it owns. The failure appears in the application's logs,")
+	fmt.Fprintln(&buf, "not in Onebox output.")
 	fmt.Fprintln(&buf, ":::")
 	fmt.Fprintln(&buf)
 
@@ -1002,14 +997,14 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf, "`postgres` is the one driver with an executable backup contract: declaring")
 	fmt.Fprintln(&buf, "`backup` on it gives a continuous off-host archive and point-in-time recovery.")
 	fmt.Fprintln(&buf, "Every other driver declares `policy_qualified: false`, so a backup policy on it")
-	fmt.Fprintln(&buf, "is refused at `ob validate` rather than accepted and left to do nothing — and its")
+	fmt.Fprintln(&buf, "is refused at `ob validate`; its")
 	fmt.Fprintln(&buf, "data lives only on this host until you copy it off yourself.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "Onebox also refuses a major version change a driver cannot perform in place,")
 	fmt.Fprintln(&buf, "rather than replacing the container and leaving the data intact and unreachable.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "For `postgres`, declaring `backup` changes this — see")
-	fmt.Fprintln(&buf, "[Shipped vs proposed](/docs/reference/capabilities).")
+	fmt.Fprintln(&buf, "For `postgres`, a `backup` block changes this once `ob backup enable` succeeds;")
+	fmt.Fprintln(&buf, "see [Declaring is not enabling](/docs/guides/backups#declaring-is-not-enabling).")
 	fmt.Fprintln(&buf, ":::")
 	fmt.Fprintln(&buf)
 
@@ -1055,12 +1050,12 @@ func renderErrorPage() string {
 	fmt.Fprintln(&buf, generatedMarker)
 	fmt.Fprintln(&buf)
 
-	fmt.Fprintln(&buf, "A code is a promise: it names a kind of failure that keeps meaning the same thing")
+	fmt.Fprintln(&buf, "A code names a kind of failure that keeps meaning the same thing")
 	fmt.Fprintln(&buf, "across releases. Branch on the code, never on the sentence.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "## Validation codes")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "Adding one is a deliberate act. A test refuses any code the loader emits that is")
+	fmt.Fprintln(&buf, "A test refuses any code the loader emits that is")
 	fmt.Fprintln(&buf, "not enumerated, and any enumerated code that nothing emits, so this table cannot")
 	fmt.Fprintln(&buf, "drift in either direction.")
 	fmt.Fprintln(&buf)
@@ -1078,14 +1073,14 @@ func renderErrorPage() string {
 
 	fmt.Fprintln(&buf, "## Operation codes")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "Raised while a command runs, rather than while the project file is read. These")
+	fmt.Fprintln(&buf, "Raised during command execution, not project-file loading. These")
 	fmt.Fprintln(&buf, "are the codes a deploy, a rollback, a secret rotation or an audited exec puts in")
 	fmt.Fprintln(&buf, "the `error.code` field, so they are the set to branch on when automating.")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "A blank command is deliberate: some failures have no honest Onebox command that")
-	fmt.Fprintln(&buf, "resolves them. A local artifact that could not be written is fixed on the")
+	fmt.Fprintln(&buf, "A blank command means no Onebox command resolves the failure. A local artifact")
+	fmt.Fprintln(&buf, "that could not be written is fixed on the")
 	fmt.Fprintln(&buf, "filesystem, not by running the tool again. An angle-bracketed command names a")
-	fmt.Fprintln(&buf, "step to complete rather than a line to run verbatim.")
+	fmt.Fprintln(&buf, "step to complete, not a line to run verbatim.")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "| Code | Means | Guidance role | Command |")
 	fmt.Fprintln(&buf, "| --- | --- | --- | --- |")
@@ -1178,7 +1173,7 @@ func renderCLIPage(ctx context.Context, obBin string) (string, error) {
 	// actually asking when they pick between them.
 	fmt.Fprintln(&buf, "## Which command changes nothing")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "Many commands change nothing — `status`, `logs`, `audit`, `schema`, `version` and `canonical` all")
+	fmt.Fprintln(&buf, "Many commands change nothing: `status`, `logs`, `audit`, `schema`, `version` and `canonical` all")
 	fmt.Fprintln(&buf, "just report. These five are the ones that get confused with each other, because each one")
 	fmt.Fprintln(&buf, "answers \"would this deploy work?\" from a different place.")
 	fmt.Fprintln(&buf)

@@ -1,7 +1,7 @@
 ---
 title: Back up a database
 description: Continuous off-host backups for PostgreSQL, and how to prove they restore.
-summary: How to declare a backup policy and a repository, what `ob backup enable` actually does, and why a backup nobody has restored is a hypothesis.
+summary: How to declare a backup policy and a repository, what `ob backup enable` actually does, and how to verify recovery.
 sidebar:
   order: 3
 read_when:
@@ -44,7 +44,7 @@ and changing its endpoint is one edit.
 ## Declaring is not enabling
 
 A `backup` block is a request. Until `ob backup enable` succeeds, the service
-renders as an ordinary unprotected server — `ob validate` accepts the policy and
+renders as an ordinary unprotected server: `ob validate` accepts the policy and
 nothing archives.
 
 ```console
@@ -60,12 +60,11 @@ That one command pins the image by registry digest. That image contains the
 compatible WAL-G executable; Onebox stages only the generated credential adapter
 on the host. It decrypts and installs the destination credentials, restarts the
 server with WAL archiving on, installs the timers, and takes the first base
-backup. **It is not finished until that base backup exists** — WAL archiving
+backup. **It is not finished until that base backup exists**: WAL archiving
 with nothing to replay onto recovers nothing, and reporting success there would
 be telling you the database is protected at the moment it is not.
 
-The restart is a real restart. Enabling is a maintenance action, not a
-configuration change.
+Enabling restarts the server, so treat it as maintenance.
 
 The scheduled base backup does not give up on its first fault. A push streams
 gigabytes through many multipart uploads and aborts on the first part the
@@ -77,7 +76,7 @@ says so, and the journal has each attempt's reason.
 
 ## The credential file
 
-The encrypted file your target names needs three entries — the two you named,
+The encrypted file your target names needs three entries: the two you named,
 plus the repository key:
 
 ```sh
@@ -93,7 +92,7 @@ the host.
 
 ## Retention is derived
 
-`retention` has two floors and Onebox keeps whichever is larger — the number of
+`retention` has two floors and Onebox keeps whichever is larger: the number of
 generations, or enough of them to span the window at your schedule's rate:
 
 | schedule | window | generations kept |
@@ -106,9 +105,8 @@ generations, or enough of them to span the window at your schedule's rate:
 
 ## What the repository can recover
 
-Every figure comes from the repository, not from the project — and the policy is
-printed beside it, because "is my promise being kept" is the question you came
-with.
+Every figure comes from the repository, not from the project, and the declared
+policy is printed beside it for comparison.
 
 ```console
 $ ob backup status database
@@ -122,10 +120,10 @@ BACKUP                         COMPLETED             FROM WAL
 base_000000010000000000000007  2026-08-19T02:00:09Z  000000010000000000000007
 ```
 
-A repository younger than its window says so rather than implying otherwise:
+A repository younger than its window reports:
 `shorter than the declared window — this repository does not reach that far back
-yet`. That is not a fault on a service enabled this morning, but it is not the
-promise either, and only the report can tell you which one you are looking at.
+yet`. On a newly enabled service this is expected, but the declared window is not
+yet covered. The report shows whether it is covered.
 
 Status also asks the server whether it is still archiving. A correct WAL-G
 binary in the pinned PostgreSQL image says the tooling is in place; it says nothing about
@@ -134,8 +132,7 @@ installed. Anything that drifted is printed as a `drift` line above the figures.
 
 ## The archive check
 
-A base backup plus a gapped WAL stream recovers to the backup and no further —
-a nightly snapshot wearing the label of point-in-time recovery. `ob backup
+A base backup plus a gapped WAL stream recovers to the backup and no further: effectively a nightly snapshot, not point-in-time recovery. `ob backup
 verify` is the check for that, and the timer from `drill.schedule` runs the same
 one unattended.
 
@@ -157,14 +154,14 @@ itself and is reported on the next run if it does not.
 ## Moving the repository
 
 Editing a target's bucket or endpoint, or pointing the service at a different
-target, takes effect at the next `ob backup enable` — and Onebox says what that
+target, takes effect at the next `ob backup enable`: and Onebox says what that
 means:
 
 ```console
 → database now archives to backup target "s3://elsewhere/shop_database". What "s3://onebox-backups/shop_database" holds is untouched, but this repository starts from the backup being taken now, so the declared recovery window begins here
 ```
 
-By default, everything else — a restore, a drill, status, retention — keeps
+By default, everything else (a restore, a drill, status, retention) keeps
 reading the repository the service was actually bound to, so editing a target
 cannot silently point a recovery at a repository the history is not in. Status,
 drill, and restore can also select an older cluster generation explicitly.
@@ -177,7 +174,7 @@ PostgreSQL's own system identifier:
 s3://onebox-backups/shop_database/clusters/7513211627332151223
 ```
 
-That is not decoration. Every fresh cluster starts its write-ahead log at
+Every fresh cluster starts its write-ahead log at
 `000000010000000000000001`, so a new database archiving where an old one left
 off would write object names that already exist with different contents. The
 archiver refuses to overwrite them, and because PostgreSQL archives strictly in
@@ -200,14 +197,12 @@ $ ob backup drill database
 
 A drill recovers into a throwaway volume, proves the cluster opens and answers a
 query, then discards it. The live service is never touched. It runs the same code
-as a real restore and stops before the last step — a drill exercising its own
-path would prove the drill works, not the backups.
+as a real restore and stops before the last step, so the drill tests the recovery path used for backups.
 
 :::caution[The scheduled drill verifies; it does not restore]
 The timer installed from `drill.schedule` runs an archive-continuity check, not a
 full recovery: the orchestration lives in `ob`, and Onebox puts no agent on your
-host. Run `ob backup drill` from CI on the cadence your policy declares. A backup
-nobody has restored is a hypothesis.
+host. Run `ob backup drill` from CI on the cadence your policy declares.
 :::
 
 ## Recovering
@@ -217,7 +212,7 @@ $ ob backup restore database --to 2026-08-19T17:31:44Z --confirm database
 ```
 
 The recovered cluster is built beside the live one and has to start, promote and
-answer a query before anything touches the running database — so a repository
+answer a query before anything touches the running database, so a repository
 that cannot recover fails while the database it would have replaced is still
 serving. The data being replaced is copied aside under a dated volume name and
 retained after restore. Only a later explicit `ob destroy --volumes` removes
@@ -228,8 +223,7 @@ for the approval flow to bind to, so the guard is the name of the thing being
 replaced.
 
 Without `--to`, recovery goes to the newest recoverable point. With `--to`,
-Onebox picks the newest base backup that finished at or before your point —
-replay only moves forward, so a later base can never reach an earlier moment. A
+Onebox picks the newest base backup that finished at or before your point; replay only moves forward, so a later base can never reach an earlier moment. A
 point older than everything in the repository is refused, and the refusal tells
 you when the oldest backup finished.
 
@@ -270,19 +264,18 @@ $ ob backup disable database --confirm database
 
 Archiving stops, the timers go, the service restarts unprotected, and the
 destination credentials are removed from the host. **The repository is not
-touched** — but reading or recovering from it needs backup enabled again,
+touched**, but reading or recovering from it needs backup enabled again,
 because the tooling and credentials that reach it live in the protected service.
 
 Re-enabling the *same* database returns to the same repository: the cluster's
 identifier has not changed, so neither has its generation. Re-enabling after the
-volume has been replaced does not, for the reason in the caution above — recover
+volume has been replaced does not, for the reason in the caution above; recover
 first if what you want is the old history.
 
 ## What is not covered
 
 Only the `postgres` driver has an executable contract, on versions 17 and 18.
-Every other driver refuses a `backup` policy at validate rather than accepting
-one it cannot honour. A workload's own volume is never copied anywhere — `ob
+Every other driver refuses a `backup` policy it cannot honour at validate. A workload's own volume is never copied anywhere: `ob
 doctor` names every workload holding durable data. A managed service declared
 `persistence: {mode: Ephemeral}` is listed as a pass because its data is
 disposable; doctor does not suggest adding a backup. Services with durable or

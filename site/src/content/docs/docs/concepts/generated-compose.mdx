@@ -1,6 +1,6 @@
 ---
 title: Why Compose is generated
-description: Why the runtime is derived from your declaration rather than read from a file you wrote.
+description: Why Onebox derives the runtime from your declaration.
 summary: Compose is an artifact Onebox generates, not an input it reads. What that buys, and how you get out.
 sidebar:
   order: 3
@@ -18,18 +18,15 @@ Under the [ownership boundary](/docs/concepts/ownership-boundary), Onebox owns t
 runtime. Reading a runtime you wrote inverts that: you own it, and Onebox merely
 operates something it did not design and cannot fully reason about.
 
-Concretely, that costs three things:
+The Compose file and Onebox annotations could disagree, with nothing to
+arbitrate between them.
 
-**Two descriptions that can disagree.** The Compose file would say one thing,
-the Onebox annotations another, and nothing would arbitrate.
-
-**No derivation.** Onebox could not choose the container name, the volume name,
+Onebox could not choose the container name, the volume name,
 the router rule or the network, because you already would have. So it could not
 guarantee they are consistent, collision-free, or stable across releases.
 
-**No honest defaults.** `strategy: rolling` needs a health check to gate it. When
-the health check lives in a file Onebox merely reads, "is this rollout gated?"
-becomes a question rather than a fact.
+`strategy: rolling` needs a health check to gate it. Reading a health check from
+an authored file would leave Onebox unable to guarantee that the rollout is gated.
 
 ## What generation buys
 
@@ -43,15 +40,15 @@ becomes a question rather than a fact.
   them; if an unmanaged endpoint remains attached, destruction stops without
   deleting Onebox's recovery state or releasing host ownership. Once a resource
   exists its name cannot change without migration, and a foreign resource already
-  holding a derived name is refused rather than adopted.
+  holding a derived name is refused, not adopted.
 - **Digest binding.** The rendered Compose is bound into the plan, so what was
   reviewed is what executes.
 - **Refusals that mean something.** `strategy_ungated`, `route_collision`,
   `stateful_replicas` are all statements about the generated runtime, which is
   the only thing that will actually run.
 - **Typed routing.** Two workloads claiming the same entrypoint, protocol, hostname
-  and path is `route_collision`, rather than a proxy that accepts both and routes
-  to one with nothing saying which.
+  and path produce `route_collision`. This prevents the proxy from accepting both
+  and routing to one without saying which.
 
 ## A workload name is its identity
 
@@ -75,9 +72,7 @@ ob preview    # print the generated runtime, change nothing
 ob eject      # write it out and hand it over, permanently
 ```
 
-`ob eject` strips the overlay, so what lands in your repository is ordinary
-Compose — not Compose carrying Onebox labels you would then have to unpick — and
-your workloads are repointed at it with your comments intact.
+See [Eject](/docs/guides/eject) for the output and what remains on the host.
 
 ## And the escape hatch remains
 
@@ -91,8 +86,7 @@ workloads:
 ```
 
 Refusals apply only where the referenced service contradicts something Onebox
-owns — `extends`, a fixed `container_name`, `network_mode`, labels in the `onebox.`
+owns: `extends`, a fixed `container_name`, `network_mode`, labels in the `onebox.`
 or `traefik.` namespaces. See [Adopt an existing Compose file](/docs/guides/compose).
 
-The result is a contract that generates by default and defers on request, rather
-than one that can only do one of the two.
+The contract generates by default and defers on request.

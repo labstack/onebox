@@ -9,7 +9,7 @@ template: splash
 # know both halves are the same word.
 #
 # Overriding here is the mechanism that works. Emitting a <title> from the Head
-# component instead produces two of them, with Starlight's own — the wrong one —
+# component instead produces two of them, with Starlight's own: the wrong one —
 # first; that was measured, not assumed. Starlight dedupes a frontmatter `title`
 # tag against its default, so this one replaces it rather than joining it.
 #
@@ -37,8 +37,7 @@ hero:
   title: Deploys you can read before they happen.
   tagline: |
     Onebox turns <code>ob.yml</code> into a sealed deployment plan for one Linux
-    server. Review exactly what will change, approve it, then deploy over SSH —
-    with health gates, rollback, and no agent on the host.
+    server. Review exactly what will change, approve it, then deploy over SSH, with health gates, rollback, and no agent on the host.
   actions:
     - text: See a real deploy
       link: /docs/get-started/first-deploy
@@ -81,19 +80,19 @@ The plan records what Onebox observed and what it intends to change. The approva
 
 <Lifecycle>
 
-1. `ob validate` — **Declare**
+1. `ob validate`: **Declare**
 
    Read the project file, resolve every shorthand, contact nothing.
 
-2. `ob plan` — **Observe and propose**
+2. `ob plan`: **Observe and propose**
 
    Inspect the host, compare it to the declaration, and seal the result: the typed operation graph, exact config, host state, image digests and rendered Compose.
 
-3. `ob approve` — **Confirm, locally**
+3. `ob approve`: **Confirm, locally**
 
-   A tamper-evident confirmation covering that plan, target, risk and expiry. Migrations use the strong ceremony, where the operator types back what the plan acts on — the release ID for a deploy, the job name for a job run.
+   A tamper-evident confirmation covering that plan, target, risk and expiry. Migrations use the strong ceremony, where the operator types back what the plan acts on: the release ID for a deploy, the job name for a job run.
 
-4. `ob deploy` — **Execute under a lock**
+4. `ob deploy`: **Execute under a lock**
 
    Health-gated rollout, traffic drain, verification, then a versioned release with an explicit predecessor.
 
@@ -109,13 +108,13 @@ Declare application intent instead of maintaining generated runtime. Turn fields
 
 <Derivation>
 
-- `shop-web-1` — the container, with a one-based replica ordinal that is never omitted
+- `shop-web-1`: the container, with a one-based replica ordinal that is never omitted
 
-- `shop_default` — the application's own Compose network
+- `shop_default`: the application's own Compose network
 
-- `onebox-proxy` — non-root, socketless Traefik, plus an isolated discovery controller, routing and TLS
+- `onebox-proxy`: non-root, socketless Traefik, plus an isolated discovery controller, routing and TLS
 
-- `/var/lib/onebox/app` — releases, current, journal and services
+- `/var/lib/onebox/app`: releases, current, journal and services
 
 </Derivation>
 
@@ -151,9 +150,9 @@ Deployments, data and generated runtime share one evidence-backed lifecycle. [Sh
 
 <Section eyebrow="What it refuses">
 
-## Refusing is the feature.
+## What Onebox refuses
 
-Onebox stops when it cannot preserve the meaning of your declaration. These are refusals, not warnings buried after a deploy.
+Onebox stops when it cannot preserve the meaning of your declaration. Onebox refuses these before anything deploys.
 
 <Refusals>
 
@@ -167,13 +166,13 @@ Onebox stops when it cannot preserve the meaning of your declaration. These are 
 
   **A cron whose meaning would change**
 
-  A schedule Onebox cannot preserve exactly, rather than one approximated. A job that runs at nearly the right time is a job that ran at the wrong time.
+  A schedule Onebox cannot translate exactly is refused, not approximated.
 
 - `at plan`
 
   **A promise it cannot keep**
 
-  A backup policy on a driver that cannot honour one, and a major version change a driver cannot perform in place — rather than replacing the container and leaving the data intact and unreachable.
+  A backup policy on a driver that cannot honour one, and a major version change a driver cannot perform in place, preventing it from replacing the container and leaving the data intact and unreachable.
 
 </Refusals>
 
@@ -183,17 +182,17 @@ Onebox stops when it cannot preserve the meaning of your declaration. These are 
 
 ## The boundary is explicit.
 
-Onebox is deliberately for one application on one host. These limits matter before you trust it with production.
+Onebox is for one application on one host. These limits matter before you trust it with production.
 
 <Rows>
 
 - **Backups cover managed services, not workload volumes**
 
-  A service declaring `backup` — PostgreSQL today — is archived off-host and restorable to a point in time. A workload's own volume is not, and `ob doctor` says so for every workload holding durable data.
+  A service declaring `backup` (PostgreSQL today) is archived off-host and restorable to a point in time. A workload's own volume is not, and `ob doctor` says so for every workload holding durable data.
 
 - **`mongodb` runs a standalone server, not a replica set**
 
-  An application needing change streams or multi-document transactions will connect, authenticate, and then fail — in its own logs, not in anything Onebox says.
+  See the [MongoDB driver limitations](/docs/reference/drivers#known-limitations) before using an application that needs a replica set.
 
 - **One host, and no failover**
 

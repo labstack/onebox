@@ -44,7 +44,7 @@ result. Set a longer duration for jobs that legitimately need it.
 
 `catchUp` defaults to `true`: if the host was off at the scheduled time, the
 timer runs once after it returns. Set it to `false` for time-sensitive work that
-should be skipped rather than run late.
+should be skipped if it cannot run on time.
 
 ## Retry inside one firing
 
@@ -112,7 +112,7 @@ cleanup preserves the leased Compose document, environment files, and
 release-bound mounts until the job exits. `ob status` reports the policy, the
 pinned release, start time, and timeout while it runs.
 
-This is deliberately fail-closed. `deployLock: Pinned` is accepted only for a
+`deployLock: Pinned` is accepted only for a
 Onebox-rendered job declaring `dataEffect: None`. Migration, destructive,
 unknown-effect, and adopted-Compose jobs remain exclusive because pinning their
 files cannot prove that a concurrent deployment is safe for the data or
@@ -223,8 +223,8 @@ workstation's.
 ```
 
 The last one declares a day-of-month **and** a day-of-week. Cron treats that as
-"either matches" — it fires on the 1st and on every Monday. Onebox refuses it at
-load rather than running on days nobody chose.
+"either matches": it fires on the 1st and on every Monday. Onebox refuses it at
+load because the host scheduler cannot preserve that meaning.
 
 `timezone` takes an IANA zone name and defaults to `UTC`.
 Generated timers use one-second accuracy so systemd does not coalesce distinct
@@ -251,7 +251,7 @@ firing, it does not kill work in progress.
 The pause is recorded on the host, not in the project, which is what lets it
 survive a deploy. Reconciliation will not start a paused timer, so a pause
 cannot be undone by someone else's release. `--reason` is required, and is
-kept with the operator and the time, because a job that is deliberately not
+kept with the operator and the time, because a job that is paused and not
 running is indistinguishable from one that is broken:
 
 ```text
@@ -275,8 +275,7 @@ logged. Both take `--break-lock`, because a running job holds the application
 lock for its whole run and a crashed deploy leaves one behind.
 
 Resuming starts the timer again; the next run is the next scheduled elapse. It
-does not run the job now, and does not make up firings missed while paused —
-`ob job run` is how you ask for an immediate run.
+does not run the job now, and does not make up firings missed while paused; `ob job run` is how you ask for an immediate run.
 
 Deleting a job from the project clears its pause along with its units, so a
 name reused later does not come back stopped for a reason from a previous

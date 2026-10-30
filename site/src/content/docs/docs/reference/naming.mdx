@@ -1,7 +1,7 @@
 ---
 title: Naming conventions
 description: The rules every command, flag, field and error code in Onebox follows.
-summary: How Onebox names things — casing, number, mood, and which words are reserved. Written down so a new field or flag has an answer before the review.
+summary: "How Onebox names things: casing, number, mood, and which words are reserved. Written down so a new field or flag has an answer before the review."
 status: shipped
 sidebar:
   order: 210
@@ -12,19 +12,19 @@ read_when:
 
 These describe what the surface already does, so a new field or flag has an
 answer before anyone has to review it. Where a rule has known exceptions they
-are named inline — a rule with a hidden exception is worse than no rule.
+are named inline.
 
 ## The project file
 
 **Casing.** Every field is `snake_case`. Abbreviations are admitted only where
 the short form is the name people use: protocol and format tokens (`tls`,
 `http`, `tcp`, `udp`, `url`), `env`, `cron`, `args`, `config`, and the recovery
-term `pitr`. Invented shortenings are not — no `cfg`, no `dir`, no `max`.
+term `pitr`. Invented shortenings are not: no `cfg`, no `dir`, no `max`.
 
 **Number follows shape.** A field holding a map of things is plural; a field
 holding one object is singular. The exceptions are mass nouns, where the plural
-names a single settings object rather than a collection — `resources`,
-`credentials`, `overrides`, `logs`, `metrics`, `alerts` — and `env`, which is a
+names a single settings object rather than a collection (`resources`,
+`credentials`, `overrides`, `logs`, `metrics`, `alerts`) and `env`, which is a
 map named for the thing it configures.
 
 | Plural | Singular |
@@ -33,7 +33,7 @@ map named for the thing it configures.
 
 Arrays are plural too: `routes`, `envFiles`, `volumes`, `publishedPorts`,
 `needs`, `checks`, `env_checks`. Four are not, because the singular reads
-as the thing being stated rather than a list: `order`, `on`, `require`,
+as the thing being stated: `order`, `on`, `require`,
 `present`.
 
 **Booleans announce their direction.** A boolean that grants permission is
@@ -47,8 +47,7 @@ require_migration_backup: true   # demands
 managed: false                   # state
 ```
 
-**One grammar for time.** Every duration is a string with the same syntax —
-`30s`, `5m`, `1h30m`, `14d`. No field carries its unit in its name, and no
+**One grammar for time.** Every duration is a string with the same syntax: `30s`, `5m`, `1h30m`, `14d`. No field carries its unit in its name, and no
 duration is an integer.
 
 ## Runtime resources
@@ -87,7 +86,7 @@ There is no ordinal, because none of them has replicas. Managed services are
 `onebox-postgres-restore`; the host proxy is `onebox-proxy` and its discovery
 controller `onebox-discovery`. The application is not in these names: a host
 runs one application, and the `onebox.app` label records which. So `docker ps`
-reads as two groups — your images under your application's name, and what
+reads as two groups: your images under your application's name, and what
 Onebox provides under `onebox-`.
 
 The same namespace covers the host's other shared resources: the ingress network
@@ -134,7 +133,7 @@ service Compose projects, the service network and restore-drill resources:
 `onebox.app` label records which, and `ob destroy` releases the host only after
 removing them. They join with underscores because a component or volume name
 cannot contain one, so each name maps back to exactly one component and
-volume — a hyphen, which names may contain, could not promise that. The one
+volume: a hyphen, which names may contain, could not promise that. The one
 exception is the application's own Compose network, `shop_default`, which is
 the name Compose gives it.
 
@@ -146,11 +145,11 @@ the name Compose gives it.
 
 ## Commands
 
-**A command is an imperative verb, or a noun that prints.** Nothing in between.
-The split is grammatical, not about mutation — `preview` and `validate` are
+**A command is an imperative verb, or a noun that prints.**
+The split is grammatical, not about mutation; `preview` and `validate` are
 imperative verbs that change nothing.
 
-| Verbs — you tell it to act | Nouns — you ask it for a fact |
+| Verbs: you tell it to act | Nouns: you ask it for a fact |
 | --- | --- |
 | `deploy` `rollback` `abort` `resume` `approve` `bootstrap` `destroy` `eject` `exec` `init` `plan` `preview` `validate` | `status` `logs` `audit` `doctor` `schema` `version` `preflight` `canonical` |
 
@@ -159,7 +158,7 @@ Groups that hold subcommands are nouns: `job`, `proxy`, `secrets`, and
 (`ob service apply` converges the `services:` block) and plural only when its
 subcommands genuinely act on the whole set at once (`ob secrets push`).
 
-**An artifact keeps one word across all three of its surfaces** — the command
+**An artifact keeps one word across all three of its surfaces**: the command
 that produces it, the flag that consumes it, and its filename.
 
 | Producer | Consumer flag | Default filename |
@@ -167,11 +166,11 @@ that produces it, the flag that consumes it, and its filename.
 | `ob plan` | `--plan` | `ob-plan.json` |
 | `ob approve` | `--approval` | `ob-approval.json` |
 | `ob job plan` | `ob job run --plan` | `ob-job-plan.json` |
-| `ob plan --backup-report-out` | `--backup-report` | none — the path is required |
+| `ob plan --backup-report-out` | `--backup-report` | none; the path is required |
 
 The first three have a default path, so `--out` is optional.
 `--backup-report-out` is the exception: it has no default, and no report
-template is written unless you name a path — and then only when the plan
+template is written unless you name a path, and then only when the plan
 actually requires one. `ob-backup-report.json` is a convention the guidance and
 the error messages suggest, not a default the binary supplies. `ob job plan`
 takes the same `--backup-report-out`, on the same terms.
@@ -179,7 +178,7 @@ takes the same `--backup-report-out`, on the same terms.
 **The bypass gets harder as the blast radius grows.** `ob deploy` takes `-y` to
 skip its prompt. `ob destroy` has no flag that skips its confirmation: the
 application name must be typed back. (It reads that from stdin, so it can still
-be piped — the point is that no flag turns it off.)
+be piped; no flag turns it off.)
 
 ## Flags
 
@@ -188,7 +187,7 @@ prints. Three forms, three behaviours:
 
 | Form | Means | Example |
 | --- | --- | --- |
-| bare noun | **also** do this — additive, and the only additive flags are destructive | `--volumes` `--proxy` |
+| bare noun | **also** do this: additive, and the only additive flags are destructive | `--volumes` `--proxy` |
 | `-only` suffix | print this **instead** of the default output | `--digest-only` `--origins-only` |
 | adjective or `no-` prefix | modify how the command runs | `--raw` `--overwrite` `--redeploy` `--no-rollback` |
 
@@ -208,8 +207,8 @@ output is the global `--output`, never a per-command `--json`.
 `<subject>_<condition>`, `snake_case`, so codes for one subsystem sort together.
 
 The lifecycle contract follows this. The loader's own codes largely predate it
-and several are condition-first — `unknown_field`, `no_environment`,
-`unknown_service_driver` — so the environment codes do not sort together today.
+and several are condition-first (`unknown_field`, `no_environment`,
+`unknown_service_driver`) so the environment codes do not sort together today.
 New codes should be subject-first.
 
 ```
@@ -227,7 +226,7 @@ are pinned:
 | Word | Means | Never means |
 | --- | --- | --- |
 | **server** | the machine you deploy to, in the project file and in every artifact | a backup repository |
-| **target** | a backup destination — `backupTargets`, `backup.target` | the machine you deploy to |
+| **target** | a backup destination: `backupTargets`, `backup.target` | the machine you deploy to |
 | **workload** | a container Onebox runs from your declaration | a supporting service, a Compose service |
 
 `ob exec` and `ob logs` take a `<workload|service>` because those are two

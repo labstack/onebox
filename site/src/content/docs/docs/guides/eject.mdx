@@ -14,19 +14,17 @@ ob eject
 ```
 
 It writes the generated runtime into your repository and hands it over
-permanently. The overlay is stripped, so the file is ordinary Compose — not
-Compose with Onebox labels you would then have to unpick — and your workloads are
+permanently. The overlay is stripped, so the file is ordinary Compose, and your workloads are
 repointed at it with your comments intact.
 
 `--out` chooses the destination. It defaults to a free name beside the project,
-so an existing file is stepped around rather than written over. An explicit
+so it avoids overwriting an existing file. An explicit
 `--out` that already exists is refused; `--overwrite` is the way past that.
 
 ## Why the exit is a command
 
-A tool that generates your runtime is asking for trust in proportion to how hard
-it is to leave. Making the exit a first-class, tested command is how that trust
-is earned rather than requested.
+Because Onebox generates your runtime, leaving must be possible, so the exit
+is a tested command.
 
 It also means you can inspect the real thing at any time without committing to
 anything:
@@ -55,10 +53,8 @@ ob eject            # write it out and hand it over
 ## After ejecting
 
 You own the Compose file, the container names, the routing labels, and the
-lifecycle. Onebox's release staging, journal, drift detection, approval gating
-and rollback no longer apply to those workloads — that is the trade you have
-chosen, and it is the same trade you would have had if you had never adopted
-Onebox at all.
+lifecycle. If you operate those workloads outside Onebox, its release staging, journal,
+drift detection, approval gating and rollback no longer apply to them.
 
 If you want to tear the application down instead of handing it over:
 

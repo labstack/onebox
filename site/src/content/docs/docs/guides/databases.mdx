@@ -50,10 +50,8 @@ skip it on a live application, the next deploy stops at preflight with
 `service "postgres" is not running — start it with ob bootstrap or ob service apply`.
 
 :::caution[Mount changes are refused by default]
-If applying a service would detach or replace a volume that holds data, it stops
-rather than proceeding. Passing `--allow-destructive-mounts` says you have
-accepted that. A major version transition has no override at all — that is a
-migration, not a setting.
+If applying a service would detach or replace a volume that holds data, it stops. Passing `--allow-destructive-mounts` says you have
+accepted that. A major version transition has no override; perform it as a migration.
 :::
 
 The service's name is its driver unless `driver` says otherwise, so a second
@@ -111,7 +109,7 @@ package has a license unsuitable for a general customer database image. Use a
 dedicated TimescaleDB service until the upstream Apache package is clean.
 
 An existing backup-protected PostgreSQL 18 service may still be pinned to the
-older official image. Migrate it deliberately: disable backup while the old
+older official image. To migrate it: disable backup while the old
 project file is still active, add the extension declaration and deploy, then
 enable backup again:
 
@@ -127,8 +125,8 @@ transition.
 
 Eleven drivers are supported: `postgres`, `mysql`, `mariadb`, `redis`, `valkey`,
 `mongodb`, `rabbitmq`, `minio`, `meilisearch`, `clickhouse`, `nats`. Anything
-else is refused with `unknown_service_driver` — guessing an image from a name
-produces a container that starts and stores nothing durable.
+else is refused with `unknown_service_driver`; see
+the [driver catalogue](/docs/reference/drivers).
 
 ## Wire the connection
 
@@ -171,7 +169,7 @@ services:
 </Tabs>
 
 The right-hand side is a connection part: `url`, `host`, `port`, `user`,
-`password`, `database`. A part the driver does not have — a database on a cache —
+`password`, `database`. A part the driver does not have (a database on a cache)
 is omitted rather than written empty.
 
 `needs` also decides release order when `deployment.order` is absent.
@@ -182,8 +180,7 @@ is omitted rather than written empty.
   Deploy can recreate PostgreSQL services with declared extensions when their
   configuration changes; otherwise, deploy and rollback leave services running.
   Neither removes their volumes.
-- **Its credential is generated on the server, once.** Not in your project, not
-  in the generated runtime, not in the digest. Never rotated by a re-apply.
+- **Its credential follows the [driver credential contract](/docs/reference/drivers#what-a-declaration-gets-you).**
 - **Its version binds into the release digest**, so a database upgrade under an
   untouched application cannot pass unnoticed.
 
@@ -208,8 +205,8 @@ carries the credential and the credential never travels.
 :::caution[Shadowing a connection variable is refused]
 Claiming a name a managed-service connection supplies fails with
 `connection_variable_claimed`, naming both the variable and the service. The
-credential exists nowhere else, so nothing authored may claim its name — ordering
-cannot protect it, so validation does.
+credential exists nowhere else, so nothing authored may claim its name. Validation prevents the
+collision before release ordering can affect it.
 :::
 
 ## When to use a daemon workload instead
@@ -226,21 +223,20 @@ Use a daemon when you need something outside the driver set, or a topology the
 driver does not provide.
 
 :::caution[MongoDB runs standalone, not a replica set]
-Change streams and multi-document transactions need a replica set. An application
-using either will connect, authenticate, and *then* fail — in its own logs, not
-in anything Onebox says. If you need one, run a `daemon` workload you own.
+See the [MongoDB driver limitations](/docs/reference/drivers#known-limitations)
+for applications that need a replica set.
 :::
 
 :::caution[Back it up]
 A `postgres` service can declare `backup` and Onebox will keep a continuous
-off-host archive it can recover to a point in time — see
+off-host archive it can recover to a point in time; see
 [backups](/docs/guides/backups). Declaring the policy is not enough on its
 own: `ob backup enable` is what establishes it, and until then the service
 renders as an ordinary unprotected server.
 
 Every other driver declares `policy_qualified: false`, so a backup policy on
-it is refused rather than quietly ignored, and copying its data off the box is
-your responsibility — a `job` workload on a `schedule` is the usual answer.
+it is refused, and copying its data off the box is
+your responsibility: a `job` workload on a `schedule` is the usual answer.
 :::
 
 Full field list: [`services`](/docs/reference/fields/services).

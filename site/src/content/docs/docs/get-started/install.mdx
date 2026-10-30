@@ -116,7 +116,7 @@ sudo dnf install ./onebox_2026.10.0-alpha_linux_amd64.rpm
 
 These are downloadable package files, not hosted APT or RPM repositories.
 WinGet is not published yet. Homebrew and Scoop metadata live in the dedicated
-`labstack/homebrew-tap` and `labstack/scoop-bucket` repositories rather than the
+`labstack/homebrew-tap` and `labstack/scoop-bucket` repositories, outside the
 Onebox source repository.
 
 :::caution[`go install` is not a release channel]
@@ -174,10 +174,8 @@ build, test, formatting and check targets.
 Both commands support `--output json`.
 
 :::note[Why a checkout build can be refused]
-When an environment sets `minOneboxVersion`, commit-derived and dirty
-checkout builds **fail closed** — they are not released runners. That is
-deliberate: an environment that pins a minimum is asking for a runner whose
-identity can be checked, and a dirty working tree has none.
+See [runner and plan-schema policy](/docs/reference/policies#runner-and-plan-schema-policy)
+for how `minOneboxVersion` applies to checkout builds.
 :::
 
 ## What the host needs
@@ -185,29 +183,29 @@ identity can be checked, and a dirty working tree has none.
 A Linux server you can reach over SSH, with Docker Engine, Docker Compose, and
 the Docker Buildx plugin available to the configured SSH account. Onebox uses
 `docker buildx imagetools inspect` to bind tagged workload images to immutable
-registry digests. There is no Onebox agent to install on the host — the CLI
-connects over SSH, and scheduled work runs from host timers rather than a
+registry digests. There is no Onebox agent to install on the host. The CLI
+connects over SSH, and scheduled work runs from host timers without a
 resident process.
 
 All three are asserted as one set, by `ob bootstrap`, by `ob preflight`, and by
 every deploy, so a host that passes one of them passes the others. Each reports
 the version it observed alongside the result. This includes a project whose
 workload images are all digest-pinned: such a project never needs Buildx to
-resolve anything, and is still refused on a host without it, because gates that
-disagree about which host is deployable is the failure this set exists to
-prevent.
+resolve anything, and is still refused on a host without it, so the gates agree about which host is deployable.
 
 Distribution packages are a common source of a partial install. Ubuntu's
 `docker.io` gives a working daemon and no Buildx at all, and its `docker-buildx`
 0.30.1 accepts `imagetools inspect --format`, ignores it, and exits 0. Neither is
 caught by a version comparison, so the guard is in two parts: the preflight probe
-requires the client to advertise `--format`, and planning validates the digest it
-actually returns, which is what catches a client that advertises the option and
-ignores it.
+reads only `docker buildx imagetools inspect --help` and requires the client to
+advertise `--format`. It resolves no image and uses no registry quota. Missing
+Buildx or missing support produces an image-resolver remedy. Planning validates
+the returned digest, catching clients that advertise the option but ignore it
+before they can produce a misleading registry error.
 
 Onebox does not download or run a Docker installer implicitly. Install Docker
 through your normal operator-managed provisioning before `ob bootstrap`. If you
-deliberately want Onebox to invoke a pinned or configuration-managed installer,
+want Onebox to invoke a pinned or configuration-managed installer,
 declare it as a remote bootstrap hook:
 
 ```yaml
@@ -223,12 +221,7 @@ error before registry login, proxy setup, services, or evidence publication.
 A local bootstrap hook runs on the CLI machine and therefore cannot provision
 the remote host.
 
-Run `ob preflight` after host provisioning and before the first plan. Its
-Buildx probe reads only `docker buildx imagetools inspect --help`; it neither
-resolves an image nor uses registry quota. It fails with an image-resolver
-remedy when Buildx is missing or does not advertise the required `--format`
-capability. Planning also validates the formatted output, so a client that
-accepts but ignores the option cannot produce a misleading registry error.
+Run `ob preflight` after host provisioning and before the first plan.
 
 `ob bootstrap` prepares the host. It is the one command that contacts and
 changes a server before any application exists.

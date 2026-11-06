@@ -117,6 +117,9 @@ func (e *Engine) deployCore(ctx context.Context, releaseID, localStagingDir stri
 	if err := e.requireServingApplicationManifest(ctx, prev); err != nil {
 		return err
 	}
+	if err := e.requireNoUnfinishedSecretPush(ctx, prev); err != nil {
+		return fmt.Errorf("deploy precondition under lock: %w", err)
+	}
 	// A predecessor is replayed after activation to retire workloads removed by
 	// this release. Validate it before any proxy or workload mutation so a strict
 	// schema refusal cannot leave the new release serving with cleanup impossible.
@@ -711,6 +714,9 @@ func (e *Engine) rollbackTo(ctx context.Context, prev, current string, epoch int
 			// would try to finalize the deploy this rollback undid.
 			Guidance: "ob status --output json",
 		}
+	}
+	if err := e.discardSupersededSecretCheckpoint(ctx, target.ID); err != nil {
+		e.warnf("could not discard the secret checkpoint left by a replaced release: %v", err)
 	}
 	return nil
 }

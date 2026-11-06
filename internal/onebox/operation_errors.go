@@ -229,6 +229,9 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		// plan_required. Deploying forward starts with a plan.
 		Command: "ob plan --output json",
 	},
+	"secret_checkpoint_mismatch": {
+		Message: "the current release's secret checkpoint cannot be resumed: it does not match the release's secret declarations or uses an older schema",
+	},
 	"secret_cleanup_pending": {
 		Message: "the rotation is applied and verified, but removing the retired generation did not finish",
 		Command: "ob secrets push --output ndjson",
@@ -249,6 +252,10 @@ var operationFailureDefinitions = map[string]OperationFailure{
 	},
 	"secret_recovery_incomplete": {
 		Message: "secret recovery did not reach its verified terminal state",
+		Command: "ob secrets push --output ndjson",
+	},
+	"secret_push_unfinished": {
+		Message: "an interrupted secrets push for the current release must finish or roll back before a deploy",
 		Command: "ob secrets push --output ndjson",
 	},
 	"secret_rotation_rolled_back": {

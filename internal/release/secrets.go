@@ -201,7 +201,32 @@ func EncodeSecretCheckpoint(checkpoint SecretCheckpoint) ([]byte, error) {
 	return append(body, '\n'), nil
 }
 
+// UnsupportedSecretCheckpointError reports a checkpoint written in a schema
+// this version cannot resume, such as one left by a release before the
+// onebox naming change (issue #209). Only its identifying fields are read, so
+// a caller can tell whether the checkpoint still belongs to the current
+// release.
+type UnsupportedSecretCheckpointError struct {
+	SchemaVersion string
+	ReleaseID     string
+	UpdatedAt     string
+}
+
+func (err *UnsupportedSecretCheckpointError) Error() string {
+	return fmt.Sprintf("secret checkpoint schema %q is not supported", err.SchemaVersion)
+}
+
 func DecodeSecretCheckpoint(body []byte) (SecretCheckpoint, error) {
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+		ReleaseID     string `json:"release_id"`
+		UpdatedAt     string `json:"updated_at"`
+	}
+	if json.Unmarshal(body, &envelope) == nil && envelope.SchemaVersion != "" && envelope.SchemaVersion != SecretCheckpointSchemaVersion {
+		return SecretCheckpoint{}, &UnsupportedSecretCheckpointError{
+			SchemaVersion: envelope.SchemaVersion, ReleaseID: envelope.ReleaseID, UpdatedAt: envelope.UpdatedAt,
+		}
+	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	var checkpoint SecretCheckpoint

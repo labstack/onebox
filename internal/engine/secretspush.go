@@ -39,6 +39,30 @@ func (err *SecretRecoveryIncompleteError) Error() string {
 	return fmt.Sprintf("secret generation recovery for release %s is incomplete; retry `ob secrets push`: %v", err.ReleaseID, err.Cause)
 }
 
+// SecretCheckpointMismatchError reports a checkpoint for the current release
+// that does not match its secret declarations. Retrying cannot change that, so
+// the message names the file and the manual remedy instead.
+type SecretCheckpointMismatchError struct {
+	Path      string
+	ReleaseID string
+	UpdatedAt string
+	// Reason says why the checkpoint cannot be resumed. Empty means it does
+	// not match the current release's secret declarations.
+	Reason string
+}
+
+func (err *SecretCheckpointMismatchError) Error() string {
+	reason := err.Reason
+	if reason == "" {
+		reason = "does not match the current release's secret declarations"
+	}
+	return fmt.Sprintf("secret checkpoint %s (release %s, updated %s) %s, so it cannot be resumed; "+
+		"it holds no secret values: check that no `ob secrets push` is running, back the file up, remove it, then run `ob secrets push` again",
+		err.Path, err.ReleaseID, err.UpdatedAt, reason)
+}
+
+func (err *SecretCheckpointMismatchError) Code() string { return "secret_checkpoint_mismatch" }
+
 func (err *SecretRecoveryIncompleteError) Unwrap() error { return err.Cause }
 func (err *SecretRecoveryIncompleteError) Code() string  { return "secret_recovery_incomplete" }
 
@@ -134,6 +158,14 @@ func (e *Engine) SecretsPushBatchWithInputs(ctx context.Context, payloads []Secr
 	if err := runtimeEngine.WriteFence(ctx, current, epoch); err != nil {
 		return result, err
 	}
+	// current was read before the lock. A deploy that finished in between
+	// would make every later step, including the checkpoint discard, act on a
+	// release that is no longer live.
+	if locked, err := release.Current(ctx, runtimeEngine.T, runtimeEngine.names()); err != nil {
+		return result, err
+	} else if locked != current {
+		return result, fmt.Errorf("current release changed from %s to %s while waiting for the lock; run `ob secrets push` again", current, locked)
+	}
 	if err := runtimeEngine.cleanupSecretUploads(ctx); err != nil {
 		return result, err
 	}
@@ -167,10 +199,21 @@ func (e *Engine) SecretsPushBatchWithInputs(ctx context.Context, payloads []Secr
 		}
 	}()
 
+	if err := runtimeEngine.discardSupersededSecretCheckpoint(ctx, current); err != nil {
+		var mismatch *SecretCheckpointMismatchError
+		if errors.As(err, &mismatch) {
+			return result, err
+		}
+		return result, &SecretRecoveryIncompleteError{ReleaseID: current, Cause: err}
+	}
 	checkpoint, checkpointErr := release.ReadSecretCheckpoint(ctx, runtimeEngine.T, runtimeEngine.names())
 	if checkpointErr == nil {
-		if checkpoint.ReleaseID != current || !secretCheckpointMatchesGraph(checkpoint, runtimeEngine.Spec, graph, allWorkloads, paths) {
-			return result, &SecretRecoveryIncompleteError{ReleaseID: current, Cause: errors.New("durable secret checkpoint does not match the current release declaration graph")}
+		if !secretCheckpointMatchesGraph(checkpoint, runtimeEngine.Spec, graph, allWorkloads, paths) {
+			return result, &SecretCheckpointMismatchError{
+				Path:      release.SecretCheckpointPath(runtimeEngine.names()),
+				ReleaseID: checkpoint.ReleaseID,
+				UpdatedAt: checkpoint.UpdatedAt,
+			}
 		}
 		result.Generation = checkpoint.NewGeneration
 		if err := startJournal("resume old_generation=" + checkpoint.OldGeneration + " new_generation=" + checkpoint.NewGeneration); err != nil {
@@ -586,6 +629,75 @@ func (e *Engine) writeSecretCheckpoint(ctx context.Context, checkpoint release.S
 
 func (e *Engine) clearSecretCheckpoint(ctx context.Context) error {
 	return e.mutateChecked(ctx, "clear secret checkpoint", "rm -f "+q(release.SecretCheckpointPath(e.names())))
+}
+
+// discardSupersededSecretCheckpoint removes a secret checkpoint whose release
+// is no longer current. Resume and recovery only ever act on the current
+// release, so such a checkpoint can never be resumed: the activation that
+// replaced its release installed that release's own secret generation, and
+// keeping the file only blocks every later push (issue #233). The same holds
+// for a checkpoint in a schema this version cannot read (issue #209). A
+// missing checkpoint, or a readable one for the current release, is left
+// alone; an unreadable-schema one for the current release is refused with
+// SecretCheckpointMismatchError, because its workloads may be mid-rotation.
+func (e *Engine) discardSupersededSecretCheckpoint(ctx context.Context, current string) error {
+	path := release.SecretCheckpointPath(e.names())
+	checkpoint, err := release.ReadSecretCheckpoint(ctx, e.T, e.names())
+	if errors.Is(err, release.ErrSecretCheckpointMissing) {
+		return nil
+	}
+	var unsupported *release.UnsupportedSecretCheckpointError
+	if errors.As(err, &unsupported) {
+		// A file that names no valid release cannot be proven superseded.
+		if unsupported.ReleaseID == current || !release.IsID(unsupported.ReleaseID) {
+			return &SecretCheckpointMismatchError{
+				Path: path, ReleaseID: unsupported.ReleaseID, UpdatedAt: unsupported.UpdatedAt,
+				Reason: fmt.Sprintf("uses schema %q, which this version of Onebox cannot resume", unsupported.SchemaVersion),
+			}
+		}
+		checkpoint = release.SecretCheckpoint{SchemaVersion: unsupported.SchemaVersion, ReleaseID: unsupported.ReleaseID, UpdatedAt: unsupported.UpdatedAt}
+	} else if err != nil {
+		return err
+	} else if checkpoint.ReleaseID == current {
+		return nil
+	}
+	if err := e.clearSecretCheckpoint(ctx); err != nil {
+		return err
+	}
+	e.warnf("discarded secret checkpoint %s left by release %s (schema %s, updated %s); release %s replaced that release, so its rotation cannot resume",
+		path, checkpoint.ReleaseID, checkpoint.SchemaVersion, checkpoint.UpdatedAt, current)
+	return nil
+}
+
+// SecretPushUnfinishedError refuses a deploy while an interrupted push for the
+// current release is unfinished. The deploy can keep a workload whose inputs
+// did not change, so it could leave that workload on a half-rotated generation
+// with the only record of the rotation gone.
+type SecretPushUnfinishedError struct {
+	Path      string
+	ReleaseID string
+}
+
+func (err *SecretPushUnfinishedError) Error() string {
+	return fmt.Sprintf("an interrupted `ob secrets push` for release %s is unfinished (checkpoint %s); run `ob secrets push` to finish or roll it back, then deploy", err.ReleaseID, err.Path)
+}
+
+func (err *SecretPushUnfinishedError) Code() string { return "secret_push_unfinished" }
+
+// requireNoUnfinishedSecretPush discards a checkpoint left by a release that
+// current already replaced, and refuses while one for current remains.
+func (e *Engine) requireNoUnfinishedSecretPush(ctx context.Context, current string) error {
+	if err := e.discardSupersededSecretCheckpoint(ctx, current); err != nil {
+		return err
+	}
+	checkpoint, err := release.ReadSecretCheckpoint(ctx, e.T, e.names())
+	if errors.Is(err, release.ErrSecretCheckpointMissing) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return &SecretPushUnfinishedError{Path: release.SecretCheckpointPath(e.names()), ReleaseID: checkpoint.ReleaseID}
 }
 
 func (e *Engine) advanceSecretGeneration(ctx context.Context, checkpoint *release.SecretCheckpoint) error {

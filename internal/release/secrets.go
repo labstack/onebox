@@ -19,6 +19,10 @@ import (
 
 var ErrSecretCheckpointMissing = errors.New("secret checkpoint missing")
 
+// ErrSecretCheckpointInvalid marks a checkpoint file that exists but whose
+// content or mode is unusable, as opposed to a host or transport failure.
+var ErrSecretCheckpointInvalid = errors.New("secret checkpoint is invalid")
+
 // SecretPhase identifies one durable step in a secret-generation transition.
 type SecretPhase string
 
@@ -201,7 +205,32 @@ func EncodeSecretCheckpoint(checkpoint SecretCheckpoint) ([]byte, error) {
 	return append(body, '\n'), nil
 }
 
+// UnsupportedSecretCheckpointError reports a checkpoint written in a schema
+// this version cannot resume, such as one left by a release before the
+// onebox naming change (issue #209). Only its identifying fields are read, so
+// a caller can tell whether the checkpoint still belongs to the current
+// release.
+type UnsupportedSecretCheckpointError struct {
+	SchemaVersion string
+	ReleaseID     string
+	UpdatedAt     string
+}
+
+func (err *UnsupportedSecretCheckpointError) Error() string {
+	return fmt.Sprintf("secret checkpoint schema %q is not supported", err.SchemaVersion)
+}
+
 func DecodeSecretCheckpoint(body []byte) (SecretCheckpoint, error) {
+	var envelope struct {
+		SchemaVersion string `json:"schema_version"`
+		ReleaseID     string `json:"release_id"`
+		UpdatedAt     string `json:"updated_at"`
+	}
+	if json.Unmarshal(body, &envelope) == nil && envelope.SchemaVersion != "" && envelope.SchemaVersion != SecretCheckpointSchemaVersion {
+		return SecretCheckpoint{}, &UnsupportedSecretCheckpointError{
+			SchemaVersion: envelope.SchemaVersion, ReleaseID: envelope.ReleaseID, UpdatedAt: envelope.UpdatedAt,
+		}
+	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	var checkpoint SecretCheckpoint
@@ -247,7 +276,7 @@ func ReadSecretCheckpoint(ctx context.Context, target transport.Transport, names
 	case 3:
 		return SecretCheckpoint{}, ErrSecretCheckpointMissing
 	case 4:
-		return SecretCheckpoint{}, errors.New("secret checkpoint is not a regular file")
+		return SecretCheckpoint{}, fmt.Errorf("%w: it is not a regular file", ErrSecretCheckpointInvalid)
 	case app.ProbeStatePathNotDirectory:
 		return SecretCheckpoint{}, errors.New("the path that should hold the secret checkpoint is not a directory")
 	case app.ProbeUndetermined:
@@ -259,9 +288,14 @@ func ReadSecretCheckpoint(ctx context.Context, target transport.Transport, names
 	}
 	mode, body, found := strings.Cut(result.Stdout, "\n")
 	if !found || mode != "mode=600" {
-		return SecretCheckpoint{}, errors.New("secret checkpoint must have mode 0600")
+		return SecretCheckpoint{}, fmt.Errorf("%w: it must have mode 0600", ErrSecretCheckpointInvalid)
 	}
-	return DecodeSecretCheckpoint([]byte(body))
+	checkpoint, err := DecodeSecretCheckpoint([]byte(body))
+	var unsupported *UnsupportedSecretCheckpointError
+	if err != nil && !errors.As(err, &unsupported) {
+		return SecretCheckpoint{}, fmt.Errorf("%w: %w", ErrSecretCheckpointInvalid, err)
+	}
+	return checkpoint, err
 }
 
 func sortedUnique(values []string) []string {

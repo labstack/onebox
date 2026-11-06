@@ -144,3 +144,20 @@ func TestReadSecretCheckpointFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeSecretCheckpointIdentifiesUnsupportedSchema(t *testing.T) {
+	body := []byte(`{"schema_version":"onebox.run/secret-checkpoint/v1alpha1","release_id":"20260801-120000-older","updated_at":"2026-08-01T12:00:00Z","phase":"replacing"}`)
+	_, err := DecodeSecretCheckpoint(body)
+	var unsupported *UnsupportedSecretCheckpointError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("error = %v, want UnsupportedSecretCheckpointError", err)
+	}
+	if unsupported.ReleaseID != "20260801-120000-older" || unsupported.UpdatedAt != "2026-08-01T12:00:00Z" {
+		t.Fatalf("unsupported = %#v", unsupported)
+	}
+	for _, body := range []string{`{}`, `{"schema_version":7}`, `not json`} {
+		if _, err := DecodeSecretCheckpoint([]byte(body)); err == nil || errors.As(err, &unsupported) {
+			t.Fatalf("%s: error = %v, want a plain validation error", body, err)
+		}
+	}
+}

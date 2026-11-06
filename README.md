@@ -64,10 +64,14 @@ Homebrew, Scoop, release archives, and Debian/RPM packages are available. The
 verification and source builds.
 
 ```sh
-brew install labstack/tap/onebox   # macOS or Linux
+brew tap labstack/tap             # macOS or Linux
+brew trust --tap labstack/tap
+brew install labstack/tap/onebox
 scoop install labstack/onebox      # Windows
 ob version
 ```
+
+Homebrew 7 requires explicit trust for non-official taps on both macOS and Linux.
 
 ### 2. Declare the application
 

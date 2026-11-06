@@ -24,14 +24,17 @@ Set `version` to the release without its leading `v`. The asset name uses that
 value, while the download URL uses the full `vYYYY.M.REVISION-alpha` tag.
 
 <Tabs>
-  <TabItem label="macOS with Homebrew">
+  <TabItem label="macOS or Linux with Homebrew">
 
   ```sh
+  brew tap labstack/tap
+  brew trust --tap labstack/tap
   brew install labstack/tap/onebox
   ```
 
-  Homebrew verifies the archive digest. The installed `ob` binary is signed
-  with LabStack's Developer ID and accepted by Apple's notarization service.
+  Homebrew 7 requires explicit trust for non-official taps on both macOS and Linux.
+  Homebrew verifies the archive digest. On macOS, the installed `ob` binary is
+  signed with LabStack's Developer ID and accepted by Apple's notarization service.
 
   </TabItem>
   <TabItem label="macOS">

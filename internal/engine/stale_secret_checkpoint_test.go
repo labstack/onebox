@@ -291,3 +291,34 @@ func TestRollbackDiscardsCheckpointFromRolledBackRelease(t *testing.T) {
 		t.Fatalf("checkpoint after rollback: %v, want cleared", err)
 	}
 }
+
+// A checkpoint file whose mode or content is unusable must not tell the
+// operator to retry: neither a retry nor a deploy can fix it.
+func TestUnusableCheckpointNamesTheManualRemedy(t *testing.T) {
+	for _, body := range []string{"mode=644\n{}", "mode=600\n{\"schema_version\":"} {
+		fake, _ := newGenerationFake(t, false)
+		base := fake.Dynamic
+		fake.Dynamic = func(command string) (transport.Result, bool) {
+			if strings.Contains(command, "/secret-activation.json") && strings.Contains(command, "mode=%s") {
+				return transport.Result{Stdout: body}, true
+			}
+			return base(command)
+		}
+		engine := generationEngine(t, fake, &bytes.Buffer{})
+
+		_, pushErr := engine.SecretsPushBatch(context.Background(), generationPayloads())
+		deployErr := engine.requireNoUnfinishedSecretPush(context.Background(), "20260809-120000-current")
+		for name, err := range map[string]error{"push": pushErr, "deploy": deployErr} {
+			var mismatch *SecretCheckpointMismatchError
+			if !errors.As(err, &mismatch) {
+				t.Fatalf("%q %s: error = %v, want secret_checkpoint_mismatch", body, name, err)
+			}
+			if !strings.Contains(err.Error(), "back the file up, remove it") || strings.Contains(err.Error(), "retry `ob secrets push`") {
+				t.Fatalf("%q %s: error %q lacks the manual remedy", body, name, err)
+			}
+		}
+		if strings.Contains(strings.Join(fake.Commands, "\n"), "rm -f '"+release.SecretCheckpointPath(engine.Names())+"'") {
+			t.Fatalf("%q: an unusable checkpoint was deleted", body)
+		}
+	}
+}

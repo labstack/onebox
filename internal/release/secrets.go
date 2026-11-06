@@ -19,6 +19,10 @@ import (
 
 var ErrSecretCheckpointMissing = errors.New("secret checkpoint missing")
 
+// ErrSecretCheckpointInvalid marks a checkpoint file that exists but whose
+// content or mode is unusable, as opposed to a host or transport failure.
+var ErrSecretCheckpointInvalid = errors.New("secret checkpoint is invalid")
+
 // SecretPhase identifies one durable step in a secret-generation transition.
 type SecretPhase string
 
@@ -272,7 +276,7 @@ func ReadSecretCheckpoint(ctx context.Context, target transport.Transport, names
 	case 3:
 		return SecretCheckpoint{}, ErrSecretCheckpointMissing
 	case 4:
-		return SecretCheckpoint{}, errors.New("secret checkpoint is not a regular file")
+		return SecretCheckpoint{}, fmt.Errorf("%w: it is not a regular file", ErrSecretCheckpointInvalid)
 	case app.ProbeStatePathNotDirectory:
 		return SecretCheckpoint{}, errors.New("the path that should hold the secret checkpoint is not a directory")
 	case app.ProbeUndetermined:
@@ -284,9 +288,14 @@ func ReadSecretCheckpoint(ctx context.Context, target transport.Transport, names
 	}
 	mode, body, found := strings.Cut(result.Stdout, "\n")
 	if !found || mode != "mode=600" {
-		return SecretCheckpoint{}, errors.New("secret checkpoint must have mode 0600")
+		return SecretCheckpoint{}, fmt.Errorf("%w: it must have mode 0600", ErrSecretCheckpointInvalid)
 	}
-	return DecodeSecretCheckpoint([]byte(body))
+	checkpoint, err := DecodeSecretCheckpoint([]byte(body))
+	var unsupported *UnsupportedSecretCheckpointError
+	if err != nil && !errors.As(err, &unsupported) {
+		return SecretCheckpoint{}, fmt.Errorf("%w: %w", ErrSecretCheckpointInvalid, err)
+	}
+	return checkpoint, err
 }
 
 func sortedUnique(values []string) []string {

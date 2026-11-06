@@ -230,7 +230,7 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Command: "ob plan --output json",
 	},
 	"secret_checkpoint_mismatch": {
-		Message: "the current release's secret checkpoint cannot be resumed: it does not match the release's secret declarations or uses an older schema",
+		Message: "the current release's secret checkpoint cannot be resumed: it does not match the release's secret declarations, uses an older schema, or is unreadable",
 	},
 	"secret_cleanup_pending": {
 		Message: "the rotation is applied and verified, but removing the retired generation did not finish",

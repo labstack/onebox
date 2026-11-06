@@ -715,7 +715,7 @@ func (e *Engine) rollbackTo(ctx context.Context, prev, current string, epoch int
 			Guidance: "ob status --output json",
 		}
 	}
-	if err := e.discardSupersededSecretCheckpoint(ctx, target.ID); err != nil {
+	if _, err := e.liveSecretCheckpoint(ctx, target.ID); err != nil {
 		e.warnf("could not discard the secret checkpoint left by a replaced release: %v", err)
 	}
 	return nil

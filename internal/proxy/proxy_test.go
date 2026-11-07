@@ -641,7 +641,7 @@ func TestCertExpiries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(certs) != 1 || certs[0].Domain != "app.example.com" || !certs[0].NotAfter.Equal(exp) {
+	if len(certs) != 1 || certs[0].Resolver != "le" || certs[0].Domain != "app.example.com" || !certs[0].NotAfter.Equal(exp) {
 		t.Fatalf("got %+v", certs)
 	}
 
@@ -656,6 +656,47 @@ func TestCertExpiries(t *testing.T) {
 	// garbage never breaks status
 	if _, err := CertExpiries([]byte("not json")); err == nil {
 		t.Fatal("garbage must error (caller reports, never crashes)")
+	}
+}
+
+func TestCertificateStores(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want map[string]string
+	}{
+		{"default", string(renderStaticConfig(nil)),
+			map[string]string{app.ManagedCertificateResolver: "acme.json"}},
+		{"dns challenge", string(renderStaticConfigWithDNS(nil, &app.ProxyDNSChallenge{Provider: "cloudflare"})),
+			map[string]string{app.ManagedCertificateResolver: "acme.json", app.ManagedWildcardCertificateResolver: "acme-wildcard.json"}},
+		{"custom, storage outside the store directory",
+			"certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: /letsencrypt/certs.json\n  other:\n    acme:\n      storage: /data/acme.json\n  unset:\n    acme: {}\n  escape:\n    acme:\n      storage: /letsencrypt/../etc/passwd\n  typed:\n    acme:\n      storage: [x]\n",
+			map[string]string{app.ManagedCertificateResolver: "certs.json", "other": "", "unset": "", "escape": "", "typed": ""}},
+		{"relative storage resolves from /",
+			"certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: letsencrypt/acme.json\n",
+			map[string]string{app.ManagedCertificateResolver: "acme.json"}},
+		{"keys match without regard to case",
+			"certificatesresolvers:\n  letsencrypt:\n    ACME:\n      Storage: /letsencrypt/acme.json\n",
+			map[string]string{app.ManagedCertificateResolver: "acme.json"}},
+		{"no resolvers", "ping: {}\n", map[string]string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := CertificateStores([]byte(tc.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for k, v := range tc.want {
+				if file, ok := got[k]; !ok || file != v {
+					t.Fatalf("got %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+	if _, err := CertificateStores([]byte("certificatesResolvers: [")); err == nil {
+		t.Fatal("malformed configuration must error")
 	}
 }
 

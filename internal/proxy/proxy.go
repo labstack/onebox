@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"hash"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -137,7 +138,7 @@ services:
 %s    volumes:
       - ./config:/etc/traefik:ro
       - ./dynamic:/etc/traefik/dynamic:ro
-      - ./acme:/letsencrypt
+      - ./acme:`+AcmeStorageDir+`
     tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck"]
@@ -185,15 +186,18 @@ func sortedEntrypointNames(entrypoints map[string]app.ProxyEntrypoint) []string 
 
 // CertExpiry is one issued certificate's identity and lifetime — the ONLY
 // data status extracts from acme.json (which also holds private keys; those
-// never leave the parse).
+// never leave the parse). Resolver is the store key the certificate sits
+// under, which names the Traefik certificate resolver that issued it.
 type CertExpiry struct {
+	Resolver string
 	Domain   string
 	NotAfter time.Time
 }
 
 // CertExpiries parses a lego/Traefik acme.json store and returns each
-// certificate's main domain and expiry. An empty store (fresh acme.json is an
-// empty file) returns nothing; malformed JSON errors so status can say so.
+// certificate's resolver, main domain and expiry. An empty store (fresh
+// acme.json is an empty file) returns nothing; malformed JSON errors so status
+// can say so.
 func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 	if len(strings.TrimSpace(string(acmeJSON))) == 0 {
 		return nil, nil
@@ -212,7 +216,7 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 		return nil, fmt.Errorf("acme store: %w", err)
 	}
 	var out []CertExpiry
-	for _, resolver := range store {
+	for name, resolver := range store {
 		for _, c := range resolver.Certificates {
 			pemChain, err := base64.StdEncoding.DecodeString(c.Certificate)
 			if err != nil {
@@ -226,10 +230,64 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 			if err != nil {
 				continue
 			}
-			out = append(out, CertExpiry{Domain: c.Domain.Main, NotAfter: cert.NotAfter})
+			out = append(out, CertExpiry{Resolver: name, Domain: c.Domain.Main, NotAfter: cert.NotAfter})
 		}
 	}
 	return out, nil
+}
+
+// AcmeStorageDir is where the proxy container mounts the host's ACME store
+// directory. Only a store under it is one the host can read back.
+const AcmeStorageDir = "/letsencrypt"
+
+// StaticConfigNames are the file names a static configuration may have, in
+// the order Traefik searches /etc/traefik for them. Traefik also looks for
+// traefik.toml first, but Onebox refuses to stage one.
+var StaticConfigNames = []string{"traefik.yaml", "traefik.yml"}
+
+// CertificateStores returns every certificate resolver that a static
+// configuration defines, mapped to the file name of the ACME store it writes
+// inside the host's store directory. A resolver whose store cannot be placed
+// there maps to "": its storage is unset, of an unexpected type, or outside
+// the directory. Status must not call such a resolver's certificates leftovers,
+// because it cannot tell where that resolver writes.
+//
+// Keys match without regard to case, as Traefik's own loader matches them. A
+// relative storage path is resolved from /, the proxy's working directory.
+func CertificateStores(staticConfig []byte) (map[string]string, error) {
+	var document map[string]any
+	if err := yaml.Unmarshal(staticConfig, &document); err != nil {
+		return nil, errors.New("the static configuration is not valid YAML")
+	}
+	stores := map[string]string{}
+	resolvers, _ := foldKey(document, "certificatesResolvers").(map[string]any)
+	for name, value := range resolvers {
+		stores[name] = ""
+		resolver, _ := value.(map[string]any)
+		acme, _ := foldKey(resolver, "acme").(map[string]any)
+		storage, _ := foldKey(acme, "storage").(string)
+		if storage == "" {
+			continue
+		}
+		if !path.IsAbs(storage) {
+			storage = "/" + storage
+		}
+		storage = path.Clean(storage)
+		if path.Dir(storage) == AcmeStorageDir {
+			stores[name] = path.Base(storage)
+		}
+	}
+	return stores, nil
+}
+
+// foldKey returns the value under key, matched without regard to case.
+func foldKey(document map[string]any, key string) any {
+	for k, v := range document {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return nil
 }
 
 // Stage builds the local staging payload for the host proxy: compose.yaml +
@@ -276,7 +334,7 @@ entryPoints:
 const defaultStaticConfigFooter = `certificatesResolvers:
   ` + app.ManagedCertificateResolver + `:
     acme:
-      storage: /letsencrypt/acme.json
+      storage: ` + AcmeStorageDir + `/acme.json
       httpChallenge:
         entryPoint: web
 `
@@ -317,7 +375,7 @@ func renderStaticConfigWithDNS(entrypoints map[string]app.ProxyEntrypoint, dns *
 	}
 	out.WriteString(defaultStaticConfigFooter)
 	if dns != nil {
-		fmt.Fprintf(&out, "  %s:\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: %s\n", app.ManagedWildcardCertificateResolver, dns.Provider)
+		fmt.Fprintf(&out, "  %s:\n    acme:\n      storage: "+AcmeStorageDir+"/acme-wildcard.json\n      dnsChallenge:\n        provider: %s\n", app.ManagedWildcardCertificateResolver, dns.Provider)
 		if len(dns.Resolvers) > 0 {
 			out.WriteString("        resolvers:\n")
 			for _, resolver := range dns.Resolvers {

@@ -40,8 +40,8 @@ require (
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/xhit/go-str2duration/v2 v2.2.0 // indirect
-	github.com/xo/terminfo v1.2.0 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
+	github.com/xo/terminfo v1.3.1 // indirect
+	go.yaml.in/yaml/v4 v4.0.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect

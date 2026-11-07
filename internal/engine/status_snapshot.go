@@ -102,11 +102,18 @@ type StatusProxy struct {
 }
 
 // StatusCertificate is the public, private-key-free portion of an ACME entry.
+// Resolver is the store key that holds the certificate and Store is the host
+// path of the store file. Orphaned marks a certificate that no resolver in the
+// host's applied static configuration writes to that store: nothing renews it, so it is never
+// overdue and never makes the proxy diverge.
 type StatusCertificate struct {
 	Domain         string    `json:"domain"`
+	Resolver       string    `json:"resolver"`
+	Store          string    `json:"store"`
 	NotAfter       time.Time `json:"not_after"`
 	DaysRemaining  int       `json:"days_remaining"`
 	RenewalOverdue bool      `json:"renewal_overdue"`
+	Orphaned       bool      `json:"orphaned"`
 }
 
 // StatusWarning describes an observation that could not be completed.
@@ -475,6 +482,10 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 		status.Complete = false
 		status.Issues = append(status.Issues, raw.acmeIssue)
 	}
+	if complete(statusProxyCertificatesRead) && raw.certConfigIssue != "" {
+		status.Complete = false
+		status.Issues = append(status.Issues, raw.certConfigIssue)
+	}
 	if complete(statusProxyOwnerRead) {
 		status.Owner = raw.owner
 		// The read returned, but it returned a record we would not act on.
@@ -497,31 +508,26 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 	// input, the ungated form would answer "nothing is near expiry" about a
 	// store it never opened.
 	if complete(statusProxyCertificatesRead) && raw.acmeIssue == "" {
-		certs, err := proxyCertExpiries(raw.acme)
+		certs, err := judgeCertificates(raw.acme, raw.certStores, now)
 		if err != nil {
 			status.Complete = false
 			status.Issues = append(status.Issues, "certificate store is unreadable")
 			parseWarning = &StatusWarning{Component: "proxy.certificates", Message: err.Error()}
 		} else {
 			for _, cert := range certs {
-				days := int(cert.NotAfter.Sub(now).Hours() / 24)
-				overdue := days < renewalFloorDays
 				status.Certificates = append(status.Certificates, StatusCertificate{
 					Domain:         cert.Domain,
+					Resolver:       cert.Resolver,
+					Store:          cert.Store,
 					NotAfter:       cert.NotAfter.UTC(),
-					DaysRemaining:  days,
-					RenewalOverdue: overdue,
+					DaysRemaining:  cert.Days,
+					RenewalOverdue: cert.Overdue,
+					Orphaned:       cert.Orphaned,
 				})
-				if overdue {
-					status.Issues = append(status.Issues, fmt.Sprintf("certificate renewal is overdue for %s", cert.Domain))
+				if cert.Overdue {
+					status.Issues = append(status.Issues, fmt.Sprintf("certificate renewal is overdue for %s (resolver %s, %s)", cert.Domain, cert.Resolver, cert.Store))
 				}
 			}
-			sort.Slice(status.Certificates, func(i, j int) bool {
-				if status.Certificates[i].Domain == status.Certificates[j].Domain {
-					return status.Certificates[i].NotAfter.Before(status.Certificates[j].NotAfter)
-				}
-				return status.Certificates[i].Domain < status.Certificates[j].Domain
-			})
 		}
 	}
 

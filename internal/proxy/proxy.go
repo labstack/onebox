@@ -244,33 +244,49 @@ const AcmeStorageDir = "/letsencrypt"
 // the order Traefik is pointed at them.
 var StaticConfigNames = []string{"traefik.yml", "traefik.yaml"}
 
-// CertificateStores returns, for each certificate resolver that a static
-// configuration defines, the file name of the ACME store that resolver writes
-// inside the host's store directory. A resolver whose storage lies elsewhere,
-// or is left to Traefik's default, writes a store the host does not keep, so
-// it is left out. Status uses the result to tell certificates that a
-// configured resolver renews from keys that an older configuration left
-// behind.
+// CertificateStores returns every certificate resolver that a static
+// configuration defines, mapped to the file name of the ACME store it writes
+// inside the host's store directory. A resolver whose store cannot be placed
+// there maps to "": its storage is unset, of an unexpected type, or outside
+// the directory. Status must not call such a resolver's certificates leftovers,
+// because it cannot tell where that resolver writes.
+//
+// Keys match without regard to case, as Traefik's own loader matches them. A
+// relative storage path is resolved from /, the proxy's working directory.
 func CertificateStores(staticConfig []byte) (map[string]string, error) {
-	var document struct {
-		CertificatesResolvers map[string]struct {
-			ACME struct {
-				Storage string `yaml:"storage"`
-			} `yaml:"acme"`
-		} `yaml:"certificatesResolvers"`
-	}
+	var document map[string]any
 	if err := yaml.Unmarshal(staticConfig, &document); err != nil {
-		return nil, fmt.Errorf("parse static configuration: %w", err)
+		return nil, errors.New("the static configuration is not valid YAML")
 	}
-	stores := make(map[string]string, len(document.CertificatesResolvers))
-	for name, resolver := range document.CertificatesResolvers {
-		storage := path.Clean(resolver.ACME.Storage)
-		if resolver.ACME.Storage == "" || path.Dir(storage) != AcmeStorageDir {
+	stores := map[string]string{}
+	resolvers, _ := foldKey(document, "certificatesResolvers").(map[string]any)
+	for name, value := range resolvers {
+		stores[name] = ""
+		resolver, _ := value.(map[string]any)
+		acme, _ := foldKey(resolver, "acme").(map[string]any)
+		storage, _ := foldKey(acme, "storage").(string)
+		if storage == "" {
 			continue
 		}
-		stores[name] = path.Base(storage)
+		if !path.IsAbs(storage) {
+			storage = "/" + storage
+		}
+		storage = path.Clean(storage)
+		if path.Dir(storage) == AcmeStorageDir {
+			stores[name] = path.Base(storage)
+		}
 	}
 	return stores, nil
+}
+
+// foldKey returns the value under key, matched without regard to case.
+func foldKey(document map[string]any, key string) any {
+	for k, v := range document {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return nil
 }
 
 // Stage builds the local staging payload for the host proxy: compose.yaml +

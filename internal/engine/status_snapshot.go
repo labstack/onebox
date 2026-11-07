@@ -525,7 +525,7 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 					Orphaned:       cert.Orphaned,
 				})
 				if cert.Overdue {
-					status.Issues = append(status.Issues, fmt.Sprintf("certificate renewal is overdue for %s", cert.Domain))
+					status.Issues = append(status.Issues, fmt.Sprintf("certificate renewal is overdue for %s (resolver %s, %s)", cert.Domain, cert.Resolver, cert.Store))
 				}
 			}
 		}

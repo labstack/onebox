@@ -199,9 +199,9 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 // readCertificateConfig reads the static configuration the host applied and
 // records which store each of its resolvers writes. The host's file is the
 // one that matters: the running proxy renews by it, and a local change that
-// was never applied renews nothing yet. A refused read or a configuration
-// that does not parse is recorded, not raised, and leaves certStores nil so
-// the certificates are still judged by expiry. No file at all is a host that
+// was never applied renews nothing yet. A failed read or a configuration that
+// does not parse is recorded, not raised, and leaves certStores nil so the
+// certificates are still judged by expiry. Only a transport error is raised. No file at all is a host that
 // never applied a proxy, which has no certificates to judge.
 func (e *Engine) readCertificateConfig(ctx context.Context, hp proxy.Paths, px *proxyRaw) error {
 	for _, name := range proxy.StaticConfigNames {
@@ -214,15 +214,21 @@ func (e *Engine) readCertificateConfig(ctx context.Context, hp proxy.Paths, px *
 			px.certConfigIssue = issue
 			return nil
 		}
+		// Any other failure, such as cat losing a race with ob proxy apply
+		// swapping the directory, is recorded too: the stores this step reads
+		// next matter more than the configuration that refines them.
 		if res.ExitCode != 0 {
-			return statusReadResult("proxy static configuration", res, nil)
+			px.certConfigIssue = fmt.Sprintf("the applied static configuration at %s could not be read (exit %d); certificates are judged by expiry alone", path, res.ExitCode)
+			return nil
 		}
 		if strings.TrimSpace(res.Stdout) == "" {
 			continue
 		}
+		// The parse error is not quoted: it can repeat values from the file,
+		// and the message reaches the terminal and the JSON snapshot.
 		stores, err := proxy.CertificateStores([]byte(res.Stdout))
 		if err != nil {
-			px.certConfigIssue = fmt.Sprintf("the applied static configuration at %s could not be parsed (%v); certificates are judged by expiry alone", path, err)
+			px.certConfigIssue = fmt.Sprintf("the applied static configuration at %s is not valid YAML; certificates are judged by expiry alone", path)
 			return nil
 		}
 		px.certStores = stores
@@ -239,7 +245,7 @@ func certificateStoreFiles(stores map[string]string) []string {
 	seen := map[string]bool{"acme.json": true, "acme-wildcard.json": true}
 	var extra []string
 	for _, file := range stores {
-		if !seen[file] {
+		if file != "" && !seen[file] {
 			seen[file] = true
 			extra = append(extra, file)
 		}
@@ -447,10 +453,12 @@ func judgeCertificates(raw []acmeStore, stores map[string]string, now time.Time)
 			days := int(cert.NotAfter.Sub(now).Hours() / 24)
 			// Without the configuration every certificate might be renewed,
 			// so each is judged by its expiry, as before resolvers were known.
+			// A resolver whose store CertificateStores could not place ("")
+			// might write here, so it is given the benefit of the doubt.
 			renewed := true
 			if stores != nil {
 				file, configured := stores[cert.Resolver]
-				renewed = configured && file == store.file
+				renewed = configured && (file == "" || file == store.file)
 			}
 			out = append(out, judgedCertificate{
 				CertExpiry: cert,

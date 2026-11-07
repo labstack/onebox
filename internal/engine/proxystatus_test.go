@@ -405,6 +405,37 @@ func TestStatusJudgesByExpiryWhenAppliedConfigIsUnreadable(t *testing.T) {
 	}
 }
 
+// A resolver whose store cannot be placed might write anywhere, so its
+// certificates are judged by expiry and never offered for removal.
+func TestJudgeCertificatesTrustsResolverWithUnplacedStore(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	raw := []acmeStore{{file: "acme.json", path: "/h/acme.json", body: acmeFixture(t, "app.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))}}
+	certs, err := judgeCertificates(raw, map[string]string{app.ManagedCertificateResolver: ""}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 1 || certs[0].Orphaned || !certs[0].Overdue {
+		t.Fatalf("certificate of a resolver with an unplaced store must be judged by expiry: %#v", certs)
+	}
+}
+
+// A failed read of the applied configuration must not cost the certificate
+// expiries that the same step reads next.
+func TestStatusKeepsCertificatesWhenAppliedConfigReadFails(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, acmeFixture(t, "app.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)), "healthy")
+	withHostCommand(f, "cat '/var/lib/onebox/_host/proxy/config/traefik.yml'", transport.Result{ExitCode: 1})
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	px := snapshot.Proxy
+	if px == nil || len(px.Certificates) != 1 || !px.Certificates[0].RenewalOverdue {
+		t.Fatalf("certificates must still be read and judged by expiry: %#v", px)
+	}
+}
+
 func TestJudgeCertificatesUsesConfiguredStores(t *testing.T) {
 	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
 	soon := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)

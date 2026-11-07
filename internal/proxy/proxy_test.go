@@ -670,8 +670,14 @@ func TestCertificateStores(t *testing.T) {
 		{"dns challenge", string(renderStaticConfigWithDNS(nil, &app.ProxyDNSChallenge{Provider: "cloudflare"})),
 			map[string]string{app.ManagedCertificateResolver: "acme.json", app.ManagedWildcardCertificateResolver: "acme-wildcard.json"}},
 		{"custom, storage outside the store directory",
-			"certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: /letsencrypt/certs.json\n  other:\n    acme:\n      storage: /data/acme.json\n  unset:\n    acme: {}\n  escape:\n    acme:\n      storage: /letsencrypt/../etc/passwd\n",
-			map[string]string{app.ManagedCertificateResolver: "certs.json"}},
+			"certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: /letsencrypt/certs.json\n  other:\n    acme:\n      storage: /data/acme.json\n  unset:\n    acme: {}\n  escape:\n    acme:\n      storage: /letsencrypt/../etc/passwd\n  typed:\n    acme:\n      storage: [x]\n",
+			map[string]string{app.ManagedCertificateResolver: "certs.json", "other": "", "unset": "", "escape": "", "typed": ""}},
+		{"relative storage resolves from /",
+			"certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: letsencrypt/acme.json\n",
+			map[string]string{app.ManagedCertificateResolver: "acme.json"}},
+		{"keys match without regard to case",
+			"certificatesresolvers:\n  letsencrypt:\n    ACME:\n      Storage: /letsencrypt/acme.json\n",
+			map[string]string{app.ManagedCertificateResolver: "acme.json"}},
 		{"no resolvers", "ping: {}\n", map[string]string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -683,7 +689,7 @@ func TestCertificateStores(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
 			for k, v := range tc.want {
-				if got[k] != v {
+				if file, ok := got[k]; !ok || file != v {
 					t.Fatalf("got %v, want %v", got, tc.want)
 				}
 			}

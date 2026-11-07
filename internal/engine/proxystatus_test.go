@@ -256,7 +256,7 @@ func TestStatusIgnoresCertificateFromUnconfiguredResolver(t *testing.T) {
 	if strings.Contains(out.String(), "RENEWAL OVERDUE") {
 		t.Fatalf("orphaned certificate must not be flagged overdue:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), `resolver "le" is not configured`) || !strings.Contains(out.String(), "acme.json") {
+	if !strings.Contains(out.String(), `no configured resolver "le" writes this store`) || !strings.Contains(out.String(), "/var/lib/onebox/_host/proxy/acme/acme.json") {
 		t.Fatalf("orphaned certificate must name its resolver and store:\n%s", out.String())
 	}
 }
@@ -278,10 +278,13 @@ func TestStatusFlagsManagedCertificateEvenWhenOrphanedOneIsNewer(t *testing.T) {
 	}
 }
 
-func TestStatusJudgesWildcardResolverCertificates(t *testing.T) {
+// A host that once served wildcard routes keeps their certificate after the
+// routes and the DNS challenge are removed. The static configuration no longer
+// defines the wildcard resolver, so nothing renews that certificate.
+func TestStatusIgnoresWildcardCertificateAfterResolverIsRemoved(t *testing.T) {
 	applied := ""
 	wildcard := acmeStoreFixture(map[string][]string{
-		app.ManagedWildcardCertificateResolver: {acmeCertificate(t, "*.preview.example.com", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))},
+		app.ManagedWildcardCertificateResolver: {acmeCertificate(t, "*.preview.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))},
 	})
 	e, f, out, _ := statusProxyEngine(t, &applied, acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)), "healthy")
 	base := f.Dynamic
@@ -291,11 +294,67 @@ func TestStatusJudgesWildcardResolverCertificates(t *testing.T) {
 		}
 		return base(cmd)
 	}
-	if err := e.Status(context.Background()); err == nil {
-		t.Fatalf("an overdue wildcard certificate must make status diverge:\n%s", out.String())
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatalf("an unconfigured wildcard resolver's certificate must not make status diverge: %v\n%s", err, out.String())
 	}
-	if !strings.Contains(out.String(), "RENEWAL OVERDUE") {
-		t.Fatalf("overdue wildcard certificate must be flagged:\n%s", out.String())
+	if strings.Contains(out.String(), "RENEWAL OVERDUE") {
+		t.Fatalf("orphaned wildcard certificate must not be flagged overdue:\n%s", out.String())
+	}
+}
+
+// A configured resolver renews only the store its acme.storage names. The
+// same key in the other store file is a leftover.
+func TestStatusIgnoresConfiguredResolverKeyInOtherStore(t *testing.T) {
+	applied := ""
+	misplaced := acmeFixture(t, "app.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
+	e, f, out, _ := statusProxyEngine(t, &applied, acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)), "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "acme-wildcard.json") {
+			return transport.Result{Stdout: misplaced}, true
+		}
+		return base(cmd)
+	}
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatalf("a resolver key in a store it does not write must not make status diverge: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "/var/lib/onebox/_host/proxy/acme/acme-wildcard.json") {
+		t.Fatalf("orphaned certificate must name the store it sits in:\n%s", out.String())
+	}
+}
+
+func TestJudgeCertificatesUsesConfiguredStores(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	soon := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	raw := []acmeStore{
+		{file: "acme.json", path: "/h/acme.json", body: acmeFixture(t, "app.example.com", soon)},
+		{file: "acme-wildcard.json", path: "/h/acme-wildcard.json", body: acmeStoreFixture(map[string][]string{
+			app.ManagedWildcardCertificateResolver: {acmeCertificate(t, "*.preview.example.com", soon)},
+		})},
+	}
+	withDNS := map[string]string{
+		app.ManagedCertificateResolver:         "acme.json",
+		app.ManagedWildcardCertificateResolver: "acme-wildcard.json",
+	}
+	certs, err := judgeCertificates(raw, withDNS, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range certs {
+		if !c.Overdue || c.Orphaned {
+			t.Fatalf("both resolvers are configured for their stores, so both certificates are overdue: %#v", certs)
+		}
+	}
+
+	// The configuration could not be read: claim neither verdict.
+	certs, err = judgeCertificates(raw, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range certs {
+		if c.Overdue || c.Orphaned {
+			t.Fatalf("an unread configuration must not produce a verdict: %#v", certs)
+		}
 	}
 }
 

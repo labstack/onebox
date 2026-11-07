@@ -650,7 +650,7 @@ func TestStatusSnapshotIgnoresCertificateFromUnconfiguredResolver(t *testing.T) 
 	}
 	// Sorted by domain, then resolver: "le" before "letsencrypt".
 	orphan, served := certs[0], certs[1]
-	if orphan.Resolver != "le" || orphan.Store != "acme.json" || !orphan.Orphaned || orphan.RenewalOverdue || orphan.DaysRemaining != 7 {
+	if orphan.Resolver != "le" || orphan.Store != "/var/lib/onebox/_host/proxy/acme/acme.json" || !orphan.Orphaned || orphan.RenewalOverdue || orphan.DaysRemaining != 7 {
 		t.Fatalf("leftover certificate must be orphaned, not overdue: %#v", orphan)
 	}
 	if served.Resolver != app.ManagedCertificateResolver || served.Orphaned || served.RenewalOverdue || served.DaysRemaining != 78 {

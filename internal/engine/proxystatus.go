@@ -21,14 +21,15 @@ const renewalFloorDays = 21
 // proxyRaw is the managed proxy's status reads, gathered concurrently with the
 // app-side reads.
 type proxyRaw struct {
-	ids       []string
-	health    string      // proxy container health, parsed from docker ps .Status
-	discovery bool        // isolated Docker discovery controller is running
-	applied   string      // config and Compose identity the host applied
-	owner     string      // sole application identity from the host owner record
-	ownerEnv  string      // environment identity from the owner record
-	acme      []acmeStore // raw ACME stores; parsed at render, and keys never leave
-	localHash string      // locally staged config and Compose identity (computed offline)
+	ids        []string
+	health     string            // proxy container health, parsed from docker ps .Status
+	discovery  bool              // isolated Docker discovery controller is running
+	applied    string            // config and Compose identity the host applied
+	owner      string            // sole application identity from the host owner record
+	ownerEnv   string            // environment identity from the owner record
+	acme       []acmeStore       // raw ACME stores; parsed at render, and keys never leave
+	certStores map[string]string // resolver → ACME store file, from the staged static config
+	localHash  string            // locally staged config and Compose identity (computed offline)
 	// Why a read could not be trusted, when it could not. Recorded rather
 	// than raised: gather returns on the first error and Status renders
 	// nothing after it, so raising costs the operator every other fact about
@@ -169,7 +170,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				if res.ExitCode != 0 {
 					return statusReadResult("proxy certificate store", res, nil)
 				}
-				px.acme = append(px.acme, acmeStore{file: name, body: res.Stdout})
+				px.acme = append(px.acme, acmeStore{file: name, path: path, body: res.Stdout})
 			}
 			return nil
 		},
@@ -181,6 +182,10 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			defer os.RemoveAll(staging)
 			id, err := e.stageProxy(staging)
 			px.localHash = id.String()
+			if err != nil {
+				return err
+			}
+			px.certStores, err = proxy.CertificateStores(staging)
 			return err
 		},
 	}
@@ -316,7 +321,7 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%s)\n", px.acmeIssue)
 		return true, nil
 	}
-	certs, err := judgeCertificates(px.acme, e.Opts.Now())
+	certs, err := judgeCertificates(px.acme, px.certStores, e.Opts.Now())
 	if err != nil {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%v)\n", err)
 		return true, nil
@@ -325,7 +330,7 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		mark := ""
 		switch {
 		case c.Orphaned:
-			mark = e.ui.Dim(fmt.Sprintf("  not renewed: resolver %q is not configured (remove it from %s while the proxy is stopped)", c.Resolver, c.Store))
+			mark = e.ui.Dim(fmt.Sprintf("  not renewed: no configured resolver %q writes this store (remove the key from %s while the proxy is stopped)", c.Resolver, c.Store))
 		case c.Overdue:
 			mark = e.ui.Warn("  RENEWAL OVERDUE ⚠ (lego renews at 30d — check CF_DNS_API_TOKEN / proxy logs)")
 			diverged = true
@@ -338,7 +343,8 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 // acmeStore is one ACME store file as read from the host. The body holds
 // private keys, so it is parsed in place and never rendered.
 type acmeStore struct {
-	file string
+	file string // file name, as a resolver's acme.storage names it
+	path string // where the file lives on the host
 	body string
 }
 
@@ -346,38 +352,44 @@ type acmeStore struct {
 // that both status views report.
 type judgedCertificate struct {
 	proxy.CertExpiry
-	Store    string // store file the certificate was read from
+	Store    string // host path of the store the certificate was read from
 	Days     int    // whole days until expiry
-	Overdue  bool   // a managed resolver failed to renew it in time
-	Orphaned bool   // its resolver is not one Onebox configures
+	Overdue  bool   // a configured resolver failed to renew it in time
+	Orphaned bool   // no configured resolver writes it to this store
 }
 
 // judgeCertificates parses every store and judges each certificate by the
-// resolver that issued it. Only the resolvers Onebox configures renew
-// certificates for Onebox routes, so only their certificates can be overdue.
-// A key under any other name is left behind by an older proxy configuration:
-// nothing renews it, and judging its expiry would report a healthy host as
-// diverged forever. Those certificates are reported as orphaned instead, so
-// the operator can remove the stale key.
+// resolver that issued it. A certificate is renewed only when the static
+// configuration defines its resolver with this very store as its storage, so
+// only such a certificate can be overdue. A key that fails that test was left
+// behind by an older proxy configuration (a renamed resolver, wildcard routes
+// that were removed, a storage path that moved). Nothing renews it, and
+// judging its expiry would report a healthy host as diverged forever, so it is
+// reported as orphaned instead and the operator can remove the stale key.
+//
+// stores maps each configured resolver to its store file. A nil map means the
+// configuration could not be read: no certificate is then judged overdue or
+// orphaned, because status reports only what it positively observed.
 //
 // Certificates are sorted, because the store's resolver keys parse from a map
 // and both views must print the same order on every run.
-func judgeCertificates(stores []acmeStore, now time.Time) ([]judgedCertificate, error) {
+func judgeCertificates(raw []acmeStore, stores map[string]string, now time.Time) ([]judgedCertificate, error) {
 	var out []judgedCertificate
-	for _, store := range stores {
+	for _, store := range raw {
 		certs, err := proxy.CertExpiries([]byte(store.body))
 		if err != nil {
 			return nil, err
 		}
 		for _, cert := range certs {
 			days := int(cert.NotAfter.Sub(now).Hours() / 24)
-			orphaned := !managedCertificateResolver(cert.Resolver)
+			file, configured := stores[cert.Resolver]
+			renewed := configured && file == store.file
 			out = append(out, judgedCertificate{
 				CertExpiry: cert,
-				Store:      store.file,
+				Store:      store.path,
 				Days:       days,
-				Overdue:    !orphaned && days < renewalFloorDays,
-				Orphaned:   orphaned,
+				Overdue:    renewed && days < renewalFloorDays,
+				Orphaned:   stores != nil && !renewed,
 			})
 		}
 	}
@@ -395,12 +407,6 @@ func judgeCertificates(stores []acmeStore, now time.Time) ([]judgedCertificate, 
 		return a.NotAfter.Before(b.NotAfter)
 	})
 	return out, nil
-}
-
-// managedCertificateResolver reports whether name is a resolver that Onebox's
-// routes use. A custom static configuration must define these same names.
-func managedCertificateResolver(name string) bool {
-	return name == app.ManagedCertificateResolver || name == app.ManagedWildcardCertificateResolver
 }
 
 func proxyDriftParts(applied string, local proxy.Identity) []string {

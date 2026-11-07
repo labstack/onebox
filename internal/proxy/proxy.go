@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"hash"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -233,6 +234,54 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 		}
 	}
 	return out, nil
+}
+
+// acmeStorageDir is where the proxy container mounts the host's ACME store
+// directory. Only a store under it is one the host can read back.
+const acmeStorageDir = "/letsencrypt"
+
+// CertificateStores reads the static configuration staged in stagingDir and
+// returns, for each certificate resolver it defines, the file name of the ACME
+// store that resolver writes inside the host's store directory. A resolver
+// whose storage lies elsewhere, or is left to Traefik's default, writes a
+// store the host does not keep, so it is left out. Status uses the result to
+// tell certificates that a configured resolver renews from keys that an older
+// configuration left behind.
+func CertificateStores(stagingDir string) (map[string]string, error) {
+	var body []byte
+	for _, name := range []string{"traefik.yml", "traefik.yaml"} {
+		b, err := os.ReadFile(filepath.Join(stagingDir, "config", name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		body = b
+		break
+	}
+	if body == nil {
+		return nil, errors.New("staged proxy configuration has no traefik.yml or traefik.yaml")
+	}
+	var document struct {
+		CertificatesResolvers map[string]struct {
+			ACME struct {
+				Storage string `yaml:"storage"`
+			} `yaml:"acme"`
+		} `yaml:"certificatesResolvers"`
+	}
+	if err := yaml.Unmarshal(body, &document); err != nil {
+		return nil, fmt.Errorf("parse static configuration: %w", err)
+	}
+	stores := make(map[string]string, len(document.CertificatesResolvers))
+	for name, resolver := range document.CertificatesResolvers {
+		storage := path.Clean(resolver.ACME.Storage)
+		if resolver.ACME.Storage == "" || path.Dir(storage) != acmeStorageDir {
+			continue
+		}
+		stores[name] = path.Base(storage)
+	}
+	return stores, nil
 }
 
 // Stage builds the local staging payload for the host proxy: compose.yaml +

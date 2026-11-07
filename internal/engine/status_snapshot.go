@@ -102,9 +102,10 @@ type StatusProxy struct {
 }
 
 // StatusCertificate is the public, private-key-free portion of an ACME entry.
-// Resolver is the store key that holds the certificate. Orphaned marks a
-// certificate under a resolver Onebox does not configure: nothing renews it,
-// so it is never overdue and never makes the proxy diverge.
+// Resolver is the store key that holds the certificate and Store is the host
+// path of the store file. Orphaned marks a certificate that no resolver in the
+// static configuration writes to that store: nothing renews it, so it is never
+// overdue and never makes the proxy diverge.
 type StatusCertificate struct {
 	Domain         string    `json:"domain"`
 	Resolver       string    `json:"resolver"`
@@ -503,7 +504,13 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 	// input, the ungated form would answer "nothing is near expiry" about a
 	// store it never opened.
 	if complete(statusProxyCertificatesRead) && raw.acmeIssue == "" {
-		certs, err := judgeCertificates(raw.acme, now)
+		// The resolver-to-store map comes from the local staging read. Without
+		// it nothing can be judged, and judgeCertificates claims nothing.
+		stores := raw.certStores
+		if !complete(statusProxyLocalHashRead) {
+			stores = nil
+		}
+		certs, err := judgeCertificates(raw.acme, stores, now)
 		if err != nil {
 			status.Complete = false
 			status.Issues = append(status.Issues, "certificate store is unreadable")

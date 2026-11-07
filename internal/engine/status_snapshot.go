@@ -102,11 +102,17 @@ type StatusProxy struct {
 }
 
 // StatusCertificate is the public, private-key-free portion of an ACME entry.
+// Resolver is the store key that holds the certificate. Orphaned marks a
+// certificate under a resolver Onebox does not configure: nothing renews it,
+// so it is never overdue and never makes the proxy diverge.
 type StatusCertificate struct {
 	Domain         string    `json:"domain"`
+	Resolver       string    `json:"resolver"`
+	Store          string    `json:"store"`
 	NotAfter       time.Time `json:"not_after"`
 	DaysRemaining  int       `json:"days_remaining"`
 	RenewalOverdue bool      `json:"renewal_overdue"`
+	Orphaned       bool      `json:"orphaned"`
 }
 
 // StatusWarning describes an observation that could not be completed.
@@ -497,31 +503,26 @@ func makeStatusProxy(raw proxyRaw, readComplete []bool, now time.Time, applicati
 	// input, the ungated form would answer "nothing is near expiry" about a
 	// store it never opened.
 	if complete(statusProxyCertificatesRead) && raw.acmeIssue == "" {
-		certs, err := proxyCertExpiries(raw.acme)
+		certs, err := judgeCertificates(raw.acme, now)
 		if err != nil {
 			status.Complete = false
 			status.Issues = append(status.Issues, "certificate store is unreadable")
 			parseWarning = &StatusWarning{Component: "proxy.certificates", Message: err.Error()}
 		} else {
 			for _, cert := range certs {
-				days := int(cert.NotAfter.Sub(now).Hours() / 24)
-				overdue := days < renewalFloorDays
 				status.Certificates = append(status.Certificates, StatusCertificate{
 					Domain:         cert.Domain,
+					Resolver:       cert.Resolver,
+					Store:          cert.Store,
 					NotAfter:       cert.NotAfter.UTC(),
-					DaysRemaining:  days,
-					RenewalOverdue: overdue,
+					DaysRemaining:  cert.Days,
+					RenewalOverdue: cert.Overdue,
+					Orphaned:       cert.Orphaned,
 				})
-				if overdue {
+				if cert.Overdue {
 					status.Issues = append(status.Issues, fmt.Sprintf("certificate renewal is overdue for %s", cert.Domain))
 				}
 			}
-			sort.Slice(status.Certificates, func(i, j int) bool {
-				if status.Certificates[i].Domain == status.Certificates[j].Domain {
-					return status.Certificates[i].NotAfter.Before(status.Certificates[j].NotAfter)
-				}
-				return status.Certificates[i].Domain < status.Certificates[j].Domain
-			})
 		}
 	}
 

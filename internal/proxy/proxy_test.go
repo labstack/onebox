@@ -641,7 +641,7 @@ func TestCertExpiries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(certs) != 1 || certs[0].Domain != "app.example.com" || !certs[0].NotAfter.Equal(exp) {
+	if len(certs) != 1 || certs[0].Resolver != "le" || certs[0].Domain != "app.example.com" || !certs[0].NotAfter.Equal(exp) {
 		t.Fatalf("got %+v", certs)
 	}
 

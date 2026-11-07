@@ -26,6 +26,31 @@ import (
 
 func acmeFixture(t *testing.T, domain string, notAfter time.Time) string {
 	t.Helper()
+	return acmeStoreFixture(map[string][]string{
+		app.ManagedCertificateResolver: {acmeCertificate(t, domain, notAfter)},
+	})
+}
+
+// acmeStoreFixture builds a store from resolver keys and their certificate
+// entries, as written by acmeCertificate.
+func acmeStoreFixture(resolvers map[string][]string) string {
+	var body strings.Builder
+	body.WriteString("{")
+	first := true
+	for name, certs := range resolvers {
+		if !first {
+			body.WriteString(",")
+		}
+		first = false
+		fmt.Fprintf(&body, `%q:{"Certificates":[%s]}`, name, strings.Join(certs, ","))
+	}
+	body.WriteString("}")
+	return body.String()
+}
+
+// acmeCertificate is one entry of a resolver's Certificates list.
+func acmeCertificate(t *testing.T, domain string, notAfter time.Time) string {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +66,7 @@ func acmeFixture(t *testing.T, domain string, notAfter time.Time) string {
 		t.Fatal(err)
 	}
 	pemB := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	return fmt.Sprintf(`{"le":{"Certificates":[{"domain":{"main":%q},"certificate":%q}]}}`,
+	return fmt.Sprintf(`{"domain":{"main":%q},"certificate":%q}`,
 		domain, base64.StdEncoding.EncodeToString(pemB))
 }
 
@@ -207,6 +232,70 @@ func TestStatusManagedProxyCertRenewalOverdue(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "RENEWAL OVERDUE") {
 		t.Fatalf("overdue renewal must be flagged:\n%s", out.String())
+	}
+}
+
+// staleResolverStore is the store from issue #235: a resolver key left behind
+// by an older proxy configuration still holds a certificate for a domain that
+// the configured resolver also covers. Nothing renews the leftover, so it sits
+// inside the renewal floor while the served certificate has plenty of runway.
+func staleResolverStore(t *testing.T) string {
+	t.Helper()
+	return acmeStoreFixture(map[string][]string{
+		"le":                           {acmeCertificate(t, "app.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))}, // 7d out
+		app.ManagedCertificateResolver: {acmeCertificate(t, "app.example.com", time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC))}, // 78d out
+	})
+}
+
+func TestStatusIgnoresCertificateFromUnconfiguredResolver(t *testing.T) {
+	applied := ""
+	e, _, out, _ := statusProxyEngine(t, &applied, staleResolverStore(t), "healthy")
+	if err := e.Status(context.Background()); err != nil {
+		t.Fatalf("an orphaned resolver's certificate must not make status diverge: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "RENEWAL OVERDUE") {
+		t.Fatalf("orphaned certificate must not be flagged overdue:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `resolver "le" is not configured`) || !strings.Contains(out.String(), "acme.json") {
+		t.Fatalf("orphaned certificate must name its resolver and store:\n%s", out.String())
+	}
+}
+
+// A newer certificate under a leftover resolver is not served, so it must not
+// hide a managed resolver whose renewal is failing.
+func TestStatusFlagsManagedCertificateEvenWhenOrphanedOneIsNewer(t *testing.T) {
+	applied := ""
+	acme := acmeStoreFixture(map[string][]string{
+		app.ManagedCertificateResolver: {acmeCertificate(t, "app.example.com", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))}, // 10d out
+		"le":                           {acmeCertificate(t, "app.example.com", time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC))},  // 60d out
+	})
+	e, _, out, _ := statusProxyEngine(t, &applied, acme, "healthy")
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("the managed certificate is overdue, so status must diverge:\n%s", out.String())
+	}
+	if n := strings.Count(out.String(), "RENEWAL OVERDUE"); n != 1 {
+		t.Fatalf("exactly the managed certificate must be flagged; got %d:\n%s", n, out.String())
+	}
+}
+
+func TestStatusJudgesWildcardResolverCertificates(t *testing.T) {
+	applied := ""
+	wildcard := acmeStoreFixture(map[string][]string{
+		app.ManagedWildcardCertificateResolver: {acmeCertificate(t, "*.preview.example.com", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))},
+	})
+	e, f, out, _ := statusProxyEngine(t, &applied, acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)), "healthy")
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, "acme-wildcard.json") {
+			return transport.Result{Stdout: wildcard}, true
+		}
+		return base(cmd)
+	}
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("an overdue wildcard certificate must make status diverge:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "RENEWAL OVERDUE") {
+		t.Fatalf("overdue wildcard certificate must be flagged:\n%s", out.String())
 	}
 }
 

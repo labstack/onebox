@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/proxy"
@@ -20,13 +22,13 @@ const renewalFloorDays = 21
 // app-side reads.
 type proxyRaw struct {
 	ids       []string
-	health    string   // proxy container health, parsed from docker ps .Status
-	discovery bool     // isolated Docker discovery controller is running
-	applied   string   // config and Compose identity the host applied
-	owner     string   // sole application identity from the host owner record
-	ownerEnv  string   // environment identity from the owner record
-	acme      []string // raw ACME stores; parsed at render, and keys never leave
-	localHash string   // locally staged config and Compose identity (computed offline)
+	health    string      // proxy container health, parsed from docker ps .Status
+	discovery bool        // isolated Docker discovery controller is running
+	applied   string      // config and Compose identity the host applied
+	owner     string      // sole application identity from the host owner record
+	ownerEnv  string      // environment identity from the owner record
+	acme      []acmeStore // raw ACME stores; parsed at render, and keys never leave
+	localHash string      // locally staged config and Compose identity (computed offline)
 	// Why a read could not be trusted, when it could not. Recorded rather
 	// than raised: gather returns on the first error and Status renders
 	// nothing after it, so raising costs the operator every other fact about
@@ -167,7 +169,7 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 				if res.ExitCode != 0 {
 					return statusReadResult("proxy certificate store", res, nil)
 				}
-				px.acme = append(px.acme, res.Stdout)
+				px.acme = append(px.acme, acmeStore{file: name, body: res.Stdout})
 			}
 			return nil
 		},
@@ -314,33 +316,91 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%s)\n", px.acmeIssue)
 		return true, nil
 	}
-	certs, err := proxyCertExpiries(px.acme)
+	certs, err := judgeCertificates(px.acme, e.Opts.Now())
 	if err != nil {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%v)\n", err)
 		return true, nil
 	}
 	for _, c := range certs {
-		days := int(c.NotAfter.Sub(e.Opts.Now()).Hours() / 24)
 		mark := ""
-		if days < renewalFloorDays {
+		switch {
+		case c.Orphaned:
+			mark = e.ui.Dim(fmt.Sprintf("  not renewed: resolver %q is not configured (remove it from %s while the proxy is stopped)", c.Resolver, c.Store))
+		case c.Overdue:
 			mark = e.ui.Warn("  RENEWAL OVERDUE ⚠ (lego renews at 30d — check CF_DNS_API_TOKEN / proxy logs)")
 			diverged = true
 		}
-		e.ui.Println(fmt.Sprintf("  cert %-20s expires %s %s%s", c.Domain, c.NotAfter.UTC().Format("2006-01-02"), e.ui.Dim(fmt.Sprintf("(%dd)", days)), mark))
+		e.ui.Println(fmt.Sprintf("  cert %-20s expires %s %s%s", c.Domain, c.NotAfter.UTC().Format("2006-01-02"), e.ui.Dim(fmt.Sprintf("(%dd)", c.Days)), mark))
 	}
 	return diverged, nil
 }
 
-func proxyCertExpiries(stores []string) ([]proxy.CertExpiry, error) {
-	var out []proxy.CertExpiry
+// acmeStore is one ACME store file as read from the host. The body holds
+// private keys, so it is parsed in place and never rendered.
+type acmeStore struct {
+	file string
+	body string
+}
+
+// judgedCertificate is one certificate from an ACME store with the verdict
+// that both status views report.
+type judgedCertificate struct {
+	proxy.CertExpiry
+	Store    string // store file the certificate was read from
+	Days     int    // whole days until expiry
+	Overdue  bool   // a managed resolver failed to renew it in time
+	Orphaned bool   // its resolver is not one Onebox configures
+}
+
+// judgeCertificates parses every store and judges each certificate by the
+// resolver that issued it. Only the resolvers Onebox configures renew
+// certificates for Onebox routes, so only their certificates can be overdue.
+// A key under any other name is left behind by an older proxy configuration:
+// nothing renews it, and judging its expiry would report a healthy host as
+// diverged forever. Those certificates are reported as orphaned instead, so
+// the operator can remove the stale key.
+//
+// Certificates are sorted, because the store's resolver keys parse from a map
+// and both views must print the same order on every run.
+func judgeCertificates(stores []acmeStore, now time.Time) ([]judgedCertificate, error) {
+	var out []judgedCertificate
 	for _, store := range stores {
-		certs, err := proxy.CertExpiries([]byte(store))
+		certs, err := proxy.CertExpiries([]byte(store.body))
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, certs...)
+		for _, cert := range certs {
+			days := int(cert.NotAfter.Sub(now).Hours() / 24)
+			orphaned := !managedCertificateResolver(cert.Resolver)
+			out = append(out, judgedCertificate{
+				CertExpiry: cert,
+				Store:      store.file,
+				Days:       days,
+				Overdue:    !orphaned && days < renewalFloorDays,
+				Orphaned:   orphaned,
+			})
+		}
 	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Domain != b.Domain {
+			return a.Domain < b.Domain
+		}
+		if a.Resolver != b.Resolver {
+			return a.Resolver < b.Resolver
+		}
+		if a.Store != b.Store {
+			return a.Store < b.Store
+		}
+		return a.NotAfter.Before(b.NotAfter)
+	})
 	return out, nil
+}
+
+// managedCertificateResolver reports whether name is a resolver that Onebox's
+// routes use. A custom static configuration must define these same names.
+func managedCertificateResolver(name string) bool {
+	return name == app.ManagedCertificateResolver || name == app.ManagedWildcardCertificateResolver
 }
 
 func proxyDriftParts(applied string, local proxy.Identity) []string {

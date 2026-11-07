@@ -185,15 +185,18 @@ func sortedEntrypointNames(entrypoints map[string]app.ProxyEntrypoint) []string 
 
 // CertExpiry is one issued certificate's identity and lifetime — the ONLY
 // data status extracts from acme.json (which also holds private keys; those
-// never leave the parse).
+// never leave the parse). Resolver is the store key the certificate sits
+// under, which names the Traefik certificate resolver that issued it.
 type CertExpiry struct {
+	Resolver string
 	Domain   string
 	NotAfter time.Time
 }
 
 // CertExpiries parses a lego/Traefik acme.json store and returns each
-// certificate's main domain and expiry. An empty store (fresh acme.json is an
-// empty file) returns nothing; malformed JSON errors so status can say so.
+// certificate's resolver, main domain and expiry. An empty store (fresh
+// acme.json is an empty file) returns nothing; malformed JSON errors so status
+// can say so.
 func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 	if len(strings.TrimSpace(string(acmeJSON))) == 0 {
 		return nil, nil
@@ -212,7 +215,7 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 		return nil, fmt.Errorf("acme store: %w", err)
 	}
 	var out []CertExpiry
-	for _, resolver := range store {
+	for name, resolver := range store {
 		for _, c := range resolver.Certificates {
 			pemChain, err := base64.StdEncoding.DecodeString(c.Certificate)
 			if err != nil {
@@ -226,7 +229,7 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 			if err != nil {
 				continue
 			}
-			out = append(out, CertExpiry{Domain: c.Domain.Main, NotAfter: cert.NotAfter})
+			out = append(out, CertExpiry{Resolver: name, Domain: c.Domain.Main, NotAfter: cert.NotAfter})
 		}
 	}
 	return out, nil

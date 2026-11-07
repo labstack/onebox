@@ -633,6 +633,31 @@ func TestStatusSnapshotReportsRefusedProxyReadsWithoutLosingTheRest(t *testing.T
 	}
 }
 
+func TestStatusSnapshotIgnoresCertificateFromUnconfiguredResolver(t *testing.T) {
+	applied := ""
+	e, _, _, _ := statusProxyEngine(t, &applied, staleResolverStore(t), "healthy")
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if snapshot.Diverged || snapshot.Proxy == nil || snapshot.Proxy.Diverged || len(snapshot.Proxy.Issues) != 0 {
+		t.Fatalf("an orphaned resolver's certificate must not make the snapshot diverge: %#v", snapshot.Proxy)
+	}
+	certs := snapshot.Proxy.Certificates
+	if len(certs) != 2 {
+		t.Fatalf("both certificates must stay listed: %#v", certs)
+	}
+	// Sorted by domain, then resolver: "le" before "letsencrypt".
+	orphan, served := certs[0], certs[1]
+	if orphan.Resolver != "le" || orphan.Store != "acme.json" || !orphan.Orphaned || orphan.RenewalOverdue || orphan.DaysRemaining != 7 {
+		t.Fatalf("leftover certificate must be orphaned, not overdue: %#v", orphan)
+	}
+	if served.Resolver != app.ManagedCertificateResolver || served.Orphaned || served.RenewalOverdue || served.DaysRemaining != 78 {
+		t.Fatalf("managed certificate must be judged normally: %#v", served)
+	}
+}
+
 func TestStatusSnapshotManagedProxy(t *testing.T) {
 	applied := ""
 	acme := acmeFixture(t, "app.example.com", time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))

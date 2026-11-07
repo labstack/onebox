@@ -138,7 +138,7 @@ services:
 %s    volumes:
       - ./config:/etc/traefik:ro
       - ./dynamic:/etc/traefik/dynamic:ro
-      - ./acme:/letsencrypt
+      - ./acme:`+AcmeStorageDir+`
     tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     healthcheck:
       test: ["CMD", "traefik", "healthcheck"]
@@ -236,33 +236,22 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 	return out, nil
 }
 
-// acmeStorageDir is where the proxy container mounts the host's ACME store
+// AcmeStorageDir is where the proxy container mounts the host's ACME store
 // directory. Only a store under it is one the host can read back.
-const acmeStorageDir = "/letsencrypt"
+const AcmeStorageDir = "/letsencrypt"
 
-// CertificateStores reads the static configuration staged in stagingDir and
-// returns, for each certificate resolver it defines, the file name of the ACME
-// store that resolver writes inside the host's store directory. A resolver
-// whose storage lies elsewhere, or is left to Traefik's default, writes a
-// store the host does not keep, so it is left out. Status uses the result to
-// tell certificates that a configured resolver renews from keys that an older
-// configuration left behind.
-func CertificateStores(stagingDir string) (map[string]string, error) {
-	var body []byte
-	for _, name := range []string{"traefik.yml", "traefik.yaml"} {
-		b, err := os.ReadFile(filepath.Join(stagingDir, "config", name))
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		body = b
-		break
-	}
-	if body == nil {
-		return nil, errors.New("staged proxy configuration has no traefik.yml or traefik.yaml")
-	}
+// StaticConfigNames are the file names a static configuration may have, in
+// the order Traefik is pointed at them.
+var StaticConfigNames = []string{"traefik.yml", "traefik.yaml"}
+
+// CertificateStores returns, for each certificate resolver that a static
+// configuration defines, the file name of the ACME store that resolver writes
+// inside the host's store directory. A resolver whose storage lies elsewhere,
+// or is left to Traefik's default, writes a store the host does not keep, so
+// it is left out. Status uses the result to tell certificates that a
+// configured resolver renews from keys that an older configuration left
+// behind.
+func CertificateStores(staticConfig []byte) (map[string]string, error) {
 	var document struct {
 		CertificatesResolvers map[string]struct {
 			ACME struct {
@@ -270,13 +259,13 @@ func CertificateStores(stagingDir string) (map[string]string, error) {
 			} `yaml:"acme"`
 		} `yaml:"certificatesResolvers"`
 	}
-	if err := yaml.Unmarshal(body, &document); err != nil {
+	if err := yaml.Unmarshal(staticConfig, &document); err != nil {
 		return nil, fmt.Errorf("parse static configuration: %w", err)
 	}
 	stores := make(map[string]string, len(document.CertificatesResolvers))
 	for name, resolver := range document.CertificatesResolvers {
 		storage := path.Clean(resolver.ACME.Storage)
-		if resolver.ACME.Storage == "" || path.Dir(storage) != acmeStorageDir {
+		if resolver.ACME.Storage == "" || path.Dir(storage) != AcmeStorageDir {
 			continue
 		}
 		stores[name] = path.Base(storage)
@@ -328,7 +317,7 @@ entryPoints:
 const defaultStaticConfigFooter = `certificatesResolvers:
   ` + app.ManagedCertificateResolver + `:
     acme:
-      storage: /letsencrypt/acme.json
+      storage: ` + AcmeStorageDir + `/acme.json
       httpChallenge:
         entryPoint: web
 `
@@ -369,7 +358,7 @@ func renderStaticConfigWithDNS(entrypoints map[string]app.ProxyEntrypoint, dns *
 	}
 	out.WriteString(defaultStaticConfigFooter)
 	if dns != nil {
-		fmt.Fprintf(&out, "  %s:\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: %s\n", app.ManagedWildcardCertificateResolver, dns.Provider)
+		fmt.Fprintf(&out, "  %s:\n    acme:\n      storage: "+AcmeStorageDir+"/acme-wildcard.json\n      dnsChallenge:\n        provider: %s\n", app.ManagedWildcardCertificateResolver, dns.Provider)
 		if len(dns.Resolvers) > 0 {
 			out.WriteString("        resolvers:\n")
 			for _, resolver := range dns.Resolvers {

@@ -104,6 +104,8 @@ func statusProxyEngine(t *testing.T, appliedHash *string, acme string, proxyHeal
 			return transport.Result{Stdout: "sample production\n"}, true
 		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/acme/acme.json'"):
 			return transport.Result{Stdout: acme}, true
+		case strings.Contains(cmd, "cat '/var/lib/onebox/_host/proxy/config/traefik.yml'"):
+			return transport.Result{Stdout: testManagedProxyStatic}, true
 		case strings.Contains(cmd, "--format") && strings.Contains(cmd, "onebox.app='sample'"):
 			return transport.Result{Stdout: "S1|web|R7|Up (healthy)\n" +
 				"W1|worker|R7|Up (healthy)\nPG1|postgres|R7|Up (healthy)\n"}, true
@@ -256,7 +258,7 @@ func TestStatusIgnoresCertificateFromUnconfiguredResolver(t *testing.T) {
 	if strings.Contains(out.String(), "RENEWAL OVERDUE") {
 		t.Fatalf("orphaned certificate must not be flagged overdue:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), `no configured resolver "le" writes this store`) || !strings.Contains(out.String(), "/var/lib/onebox/_host/proxy/acme/acme.json") {
+	if !strings.Contains(out.String(), `the applied configuration has no resolver "le" writing this store`) || !strings.Contains(out.String(), "/var/lib/onebox/_host/proxy/acme/acme.json") {
 		t.Fatalf("orphaned certificate must name its resolver and store:\n%s", out.String())
 	}
 }
@@ -323,6 +325,86 @@ func TestStatusIgnoresConfiguredResolverKeyInOtherStore(t *testing.T) {
 	}
 }
 
+// withHostCommand answers one more host command ahead of the fixture's own.
+func withHostCommand(f *transport.Fake, match string, result transport.Result) {
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		if strings.Contains(cmd, match) {
+			return result, true
+		}
+		return base(cmd)
+	}
+}
+
+// The host still runs a configuration whose wildcard resolver the local
+// project has since removed. That resolver still renews on the host, so its
+// failing renewal must be reported, not called a leftover to delete.
+func TestStatusJudgesByAppliedConfigNotLocalConfig(t *testing.T) {
+	applied := ""
+	e, f, out, _ := statusProxyEngine(t, &applied, acmeFixture(t, "app.example.com", time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)), "healthy")
+	withHostCommand(f, "cat '/var/lib/onebox/_host/proxy/config/traefik.yml'", transport.Result{
+		Stdout: testManagedProxyStatic + "  " + app.ManagedWildcardCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: cloudflare\n",
+	})
+	withHostCommand(f, "acme-wildcard.json", transport.Result{Stdout: acmeStoreFixture(map[string][]string{
+		app.ManagedWildcardCertificateResolver: {acmeCertificate(t, "*.preview.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))},
+	})})
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("the applied wildcard resolver's certificate is overdue, so status must diverge:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "RENEWAL OVERDUE") || strings.Contains(out.String(), "remove the key") {
+		t.Fatalf("a resolver the host applied must be judged, never offered for removal:\n%s", out.String())
+	}
+}
+
+// A resolver may write a store under any name in the store directory. Status
+// reads that file too, so its certificates are judged.
+func TestStatusReadsStoreNamedByAppliedConfig(t *testing.T) {
+	applied := ""
+	e, f, out, _ := statusProxyEngine(t, &applied, "", "healthy")
+	withHostCommand(f, "cat '/var/lib/onebox/_host/proxy/config/traefik.yml'", transport.Result{
+		Stdout: "certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: /letsencrypt/certs.json\n",
+	})
+	withHostCommand(f, "cat '/var/lib/onebox/_host/proxy/acme/certs.json'", transport.Result{
+		Stdout: acmeFixture(t, "app.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)),
+	})
+	if err := e.Status(context.Background()); err == nil {
+		t.Fatalf("the certificate in the configured store is overdue, so status must diverge:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "RENEWAL OVERDUE") {
+		t.Fatalf("the configured store must be read and judged:\n%s", out.String())
+	}
+}
+
+// An applied configuration that cannot be parsed must not hide an overdue
+// renewal, and must not mark anything for removal.
+func TestStatusJudgesByExpiryWhenAppliedConfigIsUnreadable(t *testing.T) {
+	applied := ""
+	e, f, _, _ := statusProxyEngine(t, &applied, staleResolverStore(t), "healthy")
+	withHostCommand(f, "cat '/var/lib/onebox/_host/proxy/config/traefik.yml'", transport.Result{Stdout: "certificatesResolvers: ["})
+
+	snapshot, err := e.StatusSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	px := snapshot.Proxy
+	if px == nil || px.Complete || !px.Diverged {
+		t.Fatalf("an unparsable applied configuration must leave the proxy incomplete and diverged: %#v", px)
+	}
+	overdue := false
+	for _, c := range px.Certificates {
+		if c.Orphaned {
+			t.Fatalf("no certificate may be called orphaned without the configuration: %#v", px.Certificates)
+		}
+		overdue = overdue || c.RenewalOverdue
+	}
+	if !overdue {
+		t.Fatalf("the 7-day certificate must still be judged overdue by expiry: %#v", px.Certificates)
+	}
+	if px.LocalConfigHash == "" {
+		t.Fatalf("the local configuration read is independent and must survive: %#v", px)
+	}
+}
+
 func TestJudgeCertificatesUsesConfiguredStores(t *testing.T) {
 	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
 	soon := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
@@ -346,14 +428,14 @@ func TestJudgeCertificatesUsesConfiguredStores(t *testing.T) {
 		}
 	}
 
-	// The configuration could not be read: claim neither verdict.
+	// The configuration is unknown: judge by expiry, orphan nothing.
 	certs, err = judgeCertificates(raw, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range certs {
-		if c.Overdue || c.Orphaned {
-			t.Fatalf("an unread configuration must not produce a verdict: %#v", certs)
+		if !c.Overdue || c.Orphaned {
+			t.Fatalf("an unknown configuration must fall back to expiry alone: %#v", certs)
 		}
 	}
 }

@@ -28,7 +28,7 @@ type proxyRaw struct {
 	owner      string            // sole application identity from the host owner record
 	ownerEnv   string            // environment identity from the owner record
 	acme       []acmeStore       // raw ACME stores; parsed at render, and keys never leave
-	certStores map[string]string // resolver → ACME store file, from the staged static config
+	certStores map[string]string // resolver → ACME store file, from the applied static config; nil when unknown
 	localHash  string            // locally staged config and Compose identity (computed offline)
 	// Why a read could not be trusted, when it could not. Recorded rather
 	// than raised: gather returns on the first error and Status renders
@@ -37,6 +37,9 @@ type proxyRaw struct {
 	ownerIssue   string
 	appliedIssue string
 	acmeIssue    string
+	// certConfigIssue: the applied static configuration could not be read or
+	// parsed, so certificates are judged by expiry alone.
+	certConfigIssue string
 }
 
 func (px proxyRaw) ownershipIssue(application, environment string) string {
@@ -157,7 +160,13 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			return nil
 		},
 		func() error {
-			for _, name := range []string{"acme.json", "acme-wildcard.json"} {
+			// The static configuration the host applied says which resolver
+			// writes which store, and so which stores to read. It is read
+			// first, in the same step as the stores it names.
+			if err := e.readCertificateConfig(ctx, hp, px); err != nil {
+				return err
+			}
+			for _, name := range certificateStoreFiles(px.certStores) {
 				path := hp.Acme + "/" + name
 				res, err := e.T.Run(ctx, readableFileProbe(path))
 				if err != nil {
@@ -182,13 +191,61 @@ func (e *Engine) proxyReads(ctx context.Context, px *proxyRaw) []func() error {
 			defer os.RemoveAll(staging)
 			id, err := e.stageProxy(staging)
 			px.localHash = id.String()
-			if err != nil {
-				return err
-			}
-			px.certStores, err = proxy.CertificateStores(staging)
 			return err
 		},
 	}
+}
+
+// readCertificateConfig reads the static configuration the host applied and
+// records which store each of its resolvers writes. The host's file is the
+// one that matters: the running proxy renews by it, and a local change that
+// was never applied renews nothing yet. A refused read or a configuration
+// that does not parse is recorded, not raised, and leaves certStores nil so
+// the certificates are still judged by expiry. No file at all is a host that
+// never applied a proxy, which has no certificates to judge.
+func (e *Engine) readCertificateConfig(ctx context.Context, hp proxy.Paths, px *proxyRaw) error {
+	for _, name := range proxy.StaticConfigNames {
+		path := hp.ConfigDir + "/" + name
+		res, err := e.T.Run(ctx, readableFileProbe(path))
+		if err != nil {
+			return err
+		}
+		if issue, refused := statusFileIssue("the applied static configuration", path, res); refused {
+			px.certConfigIssue = issue
+			return nil
+		}
+		if res.ExitCode != 0 {
+			return statusReadResult("proxy static configuration", res, nil)
+		}
+		if strings.TrimSpace(res.Stdout) == "" {
+			continue
+		}
+		stores, err := proxy.CertificateStores([]byte(res.Stdout))
+		if err != nil {
+			px.certConfigIssue = fmt.Sprintf("the applied static configuration at %s could not be parsed (%v); certificates are judged by expiry alone", path, err)
+			return nil
+		}
+		px.certStores = stores
+		return nil
+	}
+	return nil
+}
+
+// certificateStoreFiles lists the store files to read: the two Onebox has
+// always written, so that keys left in them stay visible, plus any other file
+// the applied configuration points a resolver at.
+func certificateStoreFiles(stores map[string]string) []string {
+	files := []string{"acme.json", "acme-wildcard.json"}
+	seen := map[string]bool{"acme.json": true, "acme-wildcard.json": true}
+	var extra []string
+	for _, file := range stores {
+		if !seen[file] {
+			seen[file] = true
+			extra = append(extra, file)
+		}
+	}
+	sort.Strings(extra)
+	return append(files, extra...)
 }
 
 // readableFileProbe reads a status file that may legitimately be absent:
@@ -321,6 +378,10 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%s)\n", px.acmeIssue)
 		return true, nil
 	}
+	if px.certConfigIssue != "" {
+		fmt.Fprintf(e.Opts.Out, "  cert resolvers unknown ⚠ (%s)\n", px.certConfigIssue)
+		diverged = true
+	}
 	certs, err := judgeCertificates(px.acme, px.certStores, e.Opts.Now())
 	if err != nil {
 		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%v)\n", err)
@@ -330,7 +391,7 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		mark := ""
 		switch {
 		case c.Orphaned:
-			mark = e.ui.Dim(fmt.Sprintf("  not renewed: no configured resolver %q writes this store (remove the key from %s while the proxy is stopped)", c.Resolver, c.Store))
+			mark = e.ui.Dim(fmt.Sprintf("  not renewed: the applied configuration has no resolver %q writing this store (remove the key from %s while the proxy is stopped)", c.Resolver, c.Store))
 		case c.Overdue:
 			mark = e.ui.Warn("  RENEWAL OVERDUE ⚠ (lego renews at 30d — check CF_DNS_API_TOKEN / proxy logs)")
 			diverged = true
@@ -367,9 +428,11 @@ type judgedCertificate struct {
 // judging its expiry would report a healthy host as diverged forever, so it is
 // reported as orphaned instead and the operator can remove the stale key.
 //
-// stores maps each configured resolver to its store file. A nil map means the
-// configuration could not be read: no certificate is then judged overdue or
-// orphaned, because status reports only what it positively observed.
+// stores maps each resolver of the applied configuration to its store file.
+// A nil map means that configuration is unknown. Then no certificate is
+// called orphaned, since that would invite deleting one the proxy may still
+// renew, and every certificate is judged by its expiry, since hiding a real
+// overdue renewal is the worse mistake.
 //
 // Certificates are sorted, because the store's resolver keys parse from a map
 // and both views must print the same order on every run.
@@ -382,14 +445,19 @@ func judgeCertificates(raw []acmeStore, stores map[string]string, now time.Time)
 		}
 		for _, cert := range certs {
 			days := int(cert.NotAfter.Sub(now).Hours() / 24)
-			file, configured := stores[cert.Resolver]
-			renewed := configured && file == store.file
+			// Without the configuration every certificate might be renewed,
+			// so each is judged by its expiry, as before resolvers were known.
+			renewed := true
+			if stores != nil {
+				file, configured := stores[cert.Resolver]
+				renewed = configured && file == store.file
+			}
 			out = append(out, judgedCertificate{
 				CertExpiry: cert,
 				Store:      store.path,
 				Days:       days,
 				Overdue:    renewed && days < renewalFloorDays,
-				Orphaned:   stores != nil && !renewed,
+				Orphaned:   !renewed,
 			})
 		}
 	}

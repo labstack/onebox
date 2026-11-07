@@ -660,34 +660,22 @@ func TestCertExpiries(t *testing.T) {
 }
 
 func TestCertificateStores(t *testing.T) {
-	stage := func(t *testing.T, name, body string) string {
-		t.Helper()
-		dir := t.TempDir()
-		if err := os.MkdirAll(filepath.Join(dir, "config"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "config", name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return dir
-	}
 	for _, tc := range []struct {
 		name string
-		file string
 		body string
 		want map[string]string
 	}{
-		{"default", "traefik.yml", string(renderStaticConfig(nil)),
+		{"default", string(renderStaticConfig(nil)),
 			map[string]string{app.ManagedCertificateResolver: "acme.json"}},
-		{"dns challenge", "traefik.yml", string(renderStaticConfigWithDNS(nil, &app.ProxyDNSChallenge{Provider: "cloudflare"})),
+		{"dns challenge", string(renderStaticConfigWithDNS(nil, &app.ProxyDNSChallenge{Provider: "cloudflare"})),
 			map[string]string{app.ManagedCertificateResolver: "acme.json", app.ManagedWildcardCertificateResolver: "acme-wildcard.json"}},
-		{"custom yaml, storage outside the store directory", "traefik.yaml",
-			"certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: /letsencrypt/acme.json\n  other:\n    acme:\n      storage: /data/acme.json\n  unset:\n    acme: {}\n",
-			map[string]string{app.ManagedCertificateResolver: "acme.json"}},
-		{"no resolvers", "traefik.yml", "ping: {}\n", map[string]string{}},
+		{"custom, storage outside the store directory",
+			"certificatesResolvers:\n  letsencrypt:\n    acme:\n      storage: /letsencrypt/certs.json\n  other:\n    acme:\n      storage: /data/acme.json\n  unset:\n    acme: {}\n  escape:\n    acme:\n      storage: /letsencrypt/../etc/passwd\n",
+			map[string]string{app.ManagedCertificateResolver: "certs.json"}},
+		{"no resolvers", "ping: {}\n", map[string]string{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := CertificateStores(stage(t, tc.file, tc.body))
+			got, err := CertificateStores([]byte(tc.body))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -701,8 +689,8 @@ func TestCertificateStores(t *testing.T) {
 			}
 		})
 	}
-	if _, err := CertificateStores(t.TempDir()); err == nil {
-		t.Fatal("a staging directory without a static configuration must error")
+	if _, err := CertificateStores([]byte("certificatesResolvers: [")); err == nil {
+		t.Fatal("malformed configuration must error")
 	}
 }
 

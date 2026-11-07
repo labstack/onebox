@@ -241,8 +241,9 @@ func CertExpiries(acmeJSON []byte) ([]CertExpiry, error) {
 const AcmeStorageDir = "/letsencrypt"
 
 // StaticConfigNames are the file names a static configuration may have, in
-// the order Traefik is pointed at them.
-var StaticConfigNames = []string{"traefik.yml", "traefik.yaml"}
+// the order Traefik searches /etc/traefik for them. Traefik also looks for
+// traefik.toml first, but Onebox refuses to stage one.
+var StaticConfigNames = []string{"traefik.yaml", "traefik.yml"}
 
 // CertificateStores returns every certificate resolver that a static
 // configuration defines, mapped to the file name of the ACME store it writes

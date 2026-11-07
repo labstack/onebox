@@ -211,7 +211,7 @@ func (e *Engine) readCertificateConfig(ctx context.Context, hp proxy.Paths, px *
 			return err
 		}
 		if issue, refused := statusFileIssue("the applied static configuration", path, res); refused {
-			px.certConfigIssue = issue
+			px.certConfigIssue = issue + "; certificates are judged by expiry alone"
 			return nil
 		}
 		// Any other failure, such as cat losing a race with ob proxy apply
@@ -235,6 +235,22 @@ func (e *Engine) readCertificateConfig(ctx context.Context, hp proxy.Paths, px *
 		return nil
 	}
 	return nil
+}
+
+// resolverStore looks a resolver up without regard to case, because Traefik
+// matches its configuration that way and a store key may differ in case from
+// the name the configuration spells. A missed match would call a renewing
+// certificate a leftover, so the lenient match is the safe one.
+func resolverStore(stores map[string]string, resolver string) (string, bool) {
+	if file, ok := stores[resolver]; ok {
+		return file, true
+	}
+	for name, file := range stores {
+		if strings.EqualFold(name, resolver) {
+			return file, true
+		}
+	}
+	return "", false
 }
 
 // certificateStoreFiles lists the store files to read: the two Onebox has
@@ -380,13 +396,15 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 	fmt.Fprintf(e.Opts.Out, "proxy %-12s %-10s %s   owner: %s\n", proxy.ContainerName, health, state, owner)
 
 	// cert runway — the renewal loop is the proxy's one silent failure mode
-	if px.acmeIssue != "" {
-		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%s)\n", px.acmeIssue)
-		return true, nil
-	}
+	// Printed before the store check so the text view names the same issues
+	// as the JSON snapshot when both reads fail.
 	if px.certConfigIssue != "" {
 		fmt.Fprintf(e.Opts.Out, "  cert resolvers unknown ⚠ (%s)\n", px.certConfigIssue)
 		diverged = true
+	}
+	if px.acmeIssue != "" {
+		fmt.Fprintf(e.Opts.Out, "  cert store unreadable ⚠ (%s)\n", px.acmeIssue)
+		return true, nil
 	}
 	certs, err := judgeCertificates(px.acme, px.certStores, e.Opts.Now())
 	if err != nil {
@@ -397,7 +415,7 @@ func (e *Engine) renderProxy(px proxyRaw) (bool, error) {
 		mark := ""
 		switch {
 		case c.Orphaned:
-			mark = e.ui.Dim(fmt.Sprintf("  not renewed: the applied configuration has no resolver %q writing this store (remove the key from %s while the proxy is stopped)", c.Resolver, c.Store))
+			mark = e.ui.Dim(fmt.Sprintf("  not renewed by the applied configuration (resolver %q in %s)", c.Resolver, c.Store))
 		case c.Overdue:
 			mark = e.ui.Warn("  RENEWAL OVERDUE ⚠ (lego renews at 30d — check CF_DNS_API_TOKEN / proxy logs)")
 			diverged = true
@@ -432,7 +450,10 @@ type judgedCertificate struct {
 // behind by an older proxy configuration (a renamed resolver, wildcard routes
 // that were removed, a storage path that moved). Nothing renews it, and
 // judging its expiry would report a healthy host as diverged forever, so it is
-// reported as orphaned instead and the operator can remove the stale key.
+// reported as orphaned instead. Status does not advise deleting it: Traefik
+// reads its static configuration only at startup, so a proxy that was not
+// restarted after an apply may still renew under a key the file no longer
+// names.
 //
 // stores maps each resolver of the applied configuration to its store file.
 // A nil map means that configuration is unknown. Then no certificate is
@@ -457,7 +478,7 @@ func judgeCertificates(raw []acmeStore, stores map[string]string, now time.Time)
 			// might write here, so it is given the benefit of the doubt.
 			renewed := true
 			if stores != nil {
-				file, configured := stores[cert.Resolver]
+				file, configured := resolverStore(stores, cert.Resolver)
 				renewed = configured && (file == "" || file == store.file)
 			}
 			out = append(out, judgedCertificate{

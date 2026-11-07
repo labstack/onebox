@@ -258,7 +258,7 @@ func TestStatusIgnoresCertificateFromUnconfiguredResolver(t *testing.T) {
 	if strings.Contains(out.String(), "RENEWAL OVERDUE") {
 		t.Fatalf("orphaned certificate must not be flagged overdue:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), `the applied configuration has no resolver "le" writing this store`) || !strings.Contains(out.String(), "/var/lib/onebox/_host/proxy/acme/acme.json") {
+	if !strings.Contains(out.String(), `not renewed by the applied configuration (resolver "le" in /var/lib/onebox/_host/proxy/acme/acme.json)`) {
 		t.Fatalf("orphaned certificate must name its resolver and store:\n%s", out.String())
 	}
 }
@@ -351,7 +351,7 @@ func TestStatusJudgesByAppliedConfigNotLocalConfig(t *testing.T) {
 	if err := e.Status(context.Background()); err == nil {
 		t.Fatalf("the applied wildcard resolver's certificate is overdue, so status must diverge:\n%s", out.String())
 	}
-	if !strings.Contains(out.String(), "RENEWAL OVERDUE") || strings.Contains(out.String(), "remove the key") {
+	if !strings.Contains(out.String(), "RENEWAL OVERDUE") || strings.Contains(out.String(), "not renewed") {
 		t.Fatalf("a resolver the host applied must be judged, never offered for removal:\n%s", out.String())
 	}
 }
@@ -433,6 +433,18 @@ func TestStatusKeepsCertificatesWhenAppliedConfigReadFails(t *testing.T) {
 	px := snapshot.Proxy
 	if px == nil || len(px.Certificates) != 1 || !px.Certificates[0].RenewalOverdue {
 		t.Fatalf("certificates must still be read and judged by expiry: %#v", px)
+	}
+}
+
+func TestJudgeCertificatesMatchesResolverWithoutCase(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	raw := []acmeStore{{file: "acme.json", path: "/h/acme.json", body: acmeFixture(t, "app.example.com", time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))}}
+	certs, err := judgeCertificates(raw, map[string]string{"LetsEncrypt": "acme.json"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 1 || certs[0].Orphaned || !certs[0].Overdue {
+		t.Fatalf("a resolver spelled in another case is still the one that renews: %#v", certs)
 	}
 }
 

@@ -144,11 +144,6 @@ func LifecycleFailureCodes() []string {
 	return codes
 }
 
-func LifecycleFailureMeaning(code string) (string, bool) {
-	definition, ok := lifecycleFailureDefinitions[code]
-	return definition.message, ok
-}
-
 func safeGuidanceCommand(command string) bool {
 	if !strings.HasPrefix(command, "ob ") || len(command) > 256 || strings.ContainsAny(command, "\r\n\x00;|&`$<>") {
 		return false

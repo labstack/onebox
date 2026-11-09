@@ -196,7 +196,7 @@ func TestPinImagesAcceptsAlreadyImmutableRuntimeWithoutRegistry(t *testing.T) {
 	}
 }
 
-func TestArtifactRoundtripAndBinding(t *testing.T) {
+func TestArtifactBinding(t *testing.T) {
 	a := &Artifact{
 		ID: "R1", App: "sample", Env: "production",
 		ConfigHash: HashBytes([]byte("cfg")),
@@ -207,18 +207,7 @@ func TestArtifactRoundtripAndBinding(t *testing.T) {
 		},
 		RenderedCompose: "services: {}\n",
 	}
-	path := filepath.Join(t.TempDir(), "plan.json")
-	if err := a.Save(path); err != nil {
-		t.Fatal(err)
-	}
-	b, err := LoadArtifact(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.ID != "R1" || b.HostState.ImageIDs["web"] != "sha256:aaaa" {
-		t.Fatalf("roundtrip: %+v", b)
-	}
-
+	b := a
 	// binding: config changed
 	if err := b.VerifyBinding("production", []byte("cfg-CHANGED"), b.HostState); err == nil {
 		t.Fatal("config change must refuse")

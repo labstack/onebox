@@ -316,20 +316,3 @@ func (e *Engine) jobRollbackPolicySafe(service string) bool {
 	effect := e.jobDataEffect(service)
 	return effect == "none" || e.Spec.Deployment.MigrationPolicy == "expand-only" && effect == "migration"
 }
-
-// removeNewcomers stops and removes every container of the given release
-// (identified by the onebox.release label the render injected).
-func (e *Engine) removeNewcomers(ctx context.Context, releaseID string) error {
-	for _, roleName := range e.Spec.ReleaseOrder() {
-		ids, err := e.newcomerIDs(ctx, roleName, releaseID, "")
-		if err != nil {
-			return err
-		}
-		for _, id := range ids {
-			if err := e.mutateChecked(ctx, "remove newcomer "+id, "docker stop -t 10 "+id+" && docker rm "+id); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}

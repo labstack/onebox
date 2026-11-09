@@ -41,26 +41,6 @@ type SSH struct {
 	jump       string // [user@]host[:port] of the bastion, empty when direct
 }
 
-// ParseAddr splits [user@]host[:port]; port defaults to 22.
-func ParseAddr(addr string) (user, host, port string) {
-	parsed, err := obtarget.Parse(addr)
-	if err != nil {
-		return "", "", ""
-	}
-	return parsed.User, parsed.Host, parsed.Port
-}
-
-// NewSSHContext dials and completes the SSH handshake within the caller's
-// cancellation/deadline. A bounded fallback prevents an MCP tool from hanging
-// indefinitely when its target is unreachable or stops during handshake.
-func NewSSHContext(ctx context.Context, addr string) (*SSH, error) {
-	parsed, err := obtarget.Parse(addr)
-	if err != nil {
-		return nil, fmt.Errorf("target %q: %w", addr, err)
-	}
-	return NewSSHRoute(ctx, obtarget.Route{Target: parsed})
-}
-
 // NewSSHRoute connects to the route's target, tunnelling through its jump host
 // when one is declared. Both hops are verified against known_hosts and
 // authenticated independently; the local agent may sign for either, but its

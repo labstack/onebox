@@ -1,43 +1,28 @@
 package onebox
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestOperationPlanDigestRoundTripAndTampering(t *testing.T) {
+func TestOperationPlanDigestDetectsTampering(t *testing.T) {
 	t.Parallel()
 	plan := validOperationPlan(t)
-	path := filepath.Join(t.TempDir(), "plan.json")
-	if err := plan.Save(path); err != nil {
+	if err := plan.Seal(); err != nil {
 		t.Fatal(err)
 	}
 	if plan.PlanDigest == "" {
-		t.Fatal("Save did not seal the plan")
+		t.Fatal("Seal did not set the digest")
 	}
-	loaded, err := LoadOperationPlan(path)
-	if err != nil {
-		t.Fatal(err)
+	if err := plan.VerifyDigest(); err != nil {
+		t.Fatalf("sealed plan does not verify: %v", err)
 	}
-	if loaded.PlanDigest != plan.PlanDigest {
-		t.Fatalf("loaded digest = %q, want %q", loaded.PlanDigest, plan.PlanDigest)
+	if plan.Binding.Server == "" {
+		t.Fatal("fixture has no server to tamper with")
 	}
-
-	encoded, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tampered := strings.Replace(string(encoded), `"server": "deploy@example.test"`, `"server": "attacker@example.test"`, 1)
-	if tampered == string(encoded) {
-		t.Fatal("test did not alter encoded plan")
-	}
-	if err := os.WriteFile(path, []byte(tampered), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadOperationPlan(path); err == nil || !strings.Contains(err.Error(), "plan digest mismatch") {
-		t.Fatalf("LoadOperationPlan tampering error = %v, want digest mismatch", err)
+	plan.Binding.Server = "attacker@example.test"
+	if err := plan.VerifyDigest(); err == nil || !strings.Contains(err.Error(), "plan digest mismatch") {
+		t.Fatalf("tampered plan verified: %v", err)
 	}
 }
 
@@ -63,26 +48,6 @@ func TestOperationPlanCanonicalJSONExcludesDigest(t *testing.T) {
 	}
 	if first != second {
 		t.Fatalf("digest depends on PlanDigest: %q != %q", first, second)
-	}
-}
-
-func TestLoadOperationPlanRejectsUnknownFields(t *testing.T) {
-	t.Parallel()
-	plan := validOperationPlan(t)
-	path := filepath.Join(t.TempDir(), "plan.json")
-	if err := plan.Save(path); err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded = []byte(strings.Replace(string(encoded), "{", `{"unexpected":true,`, 1))
-	if err := os.WriteFile(path, encoded, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadOperationPlan(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
-		t.Fatalf("LoadOperationPlan unknown-field error = %v", err)
 	}
 }
 

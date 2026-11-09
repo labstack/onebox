@@ -614,17 +614,13 @@ func (e *Engine) pruneRetention(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// Rollback re-releases the previous release dir: its compose.yaml pins the
-// old image locally because rollback never pulls, and its own ob.yml
-// snapshot drives the choreography — old release, old config, old modes.
-func (e *Engine) Rollback(ctx context.Context) error {
-	_, err := e.RollbackWithJournalID(ctx)
-	return err
-}
-
-// RollbackWithJournalID rolls back to the previous release and returns the
-// journal identity used for the rollback evidence. The identity is returned
-// even when execution fails after the target release has been resolved.
+// RollbackWithJournalID re-releases the previous release dir and returns the
+// journal identity used for the rollback evidence. Its compose.yaml pins the
+// old image locally because rollback never pulls, and its own ob.yml snapshot
+// drives the choreography — old release, old config, old modes.
+//
+// The identity is returned even when execution fails after the target release
+// has been resolved.
 func (e *Engine) RollbackWithJournalID(ctx context.Context) (string, error) {
 	if err := e.RequireHostOwner(ctx); err != nil {
 		return "", err

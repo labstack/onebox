@@ -283,10 +283,6 @@ const (
 	statusIntentOnly status = "intent-only"
 )
 
-func knownStatuses() []status {
-	return []status{statusShipped, statusSchemaOnly, statusIntentOnly}
-}
-
 // The blocks that get their own page, in the order a reader meets them.
 // A key absent from here still appears, on the top-level page, so a new field
 // in the Go model can never silently vanish from the documentation.

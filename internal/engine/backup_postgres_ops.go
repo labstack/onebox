@@ -327,16 +327,12 @@ func parseWalVerifyRows(out string) []walVerifyStatus {
 	return rows
 }
 
-// BackupStatusFor reads what the repository holds. Everything it reports
+// BackupStatusForGeneration reads what the repository holds. Everything it reports
 // comes from wal-g, not from the project: the project's claim about retention
 // and recovery window is exactly the claim this is here to check.
-func (e *Engine) BackupStatusFor(ctx context.Context, service string) (BackupStatus, error) {
-	return e.BackupStatusForGeneration(ctx, service, "")
-}
-
-// BackupStatusForGeneration inspects an explicitly selected physical cluster
-// generation. An empty selection means the generation currently bound to the
-// service.
+//
+// It inspects an explicitly selected physical cluster generation. An empty
+// selection means the generation currently bound to the service.
 func (e *Engine) BackupStatusForGeneration(ctx context.Context, service, generation string) (BackupStatus, error) {
 	if _, _, err := e.backedUpService(service); err != nil {
 		return BackupStatus{}, err

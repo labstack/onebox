@@ -116,14 +116,11 @@ type SecretPushResult struct {
 	NoOp       bool
 }
 
-// SecretsPushBatch rotates one complete declaration graph. It never exposes a
-// content hash: comparison happens with cmp on the host after an opaque upload,
-// and journals contain generation identifiers only.
-func (e *Engine) SecretsPushBatch(ctx context.Context, payloads []SecretPayload) (result SecretPushResult, err error) {
-	return e.SecretsPushBatchWithInputs(ctx, payloads, nil)
-}
-
-// SecretsPushBatchWithInputs binds value-free secret-input revisions derived
+// SecretsPushBatchWithInputs rotates one complete declaration graph. It never
+// exposes a content hash: comparison happens with cmp on the host after an
+// opaque upload, and journals contain generation identifiers only.
+//
+// It binds value-free secret-input revisions derived
 // from the exact encrypted source snapshots that produced payloads. Callers
 // without local source material may omit them; the existing deployed input
 // identity is then preserved.

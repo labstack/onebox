@@ -15,12 +15,9 @@ import (
 // and that Docker associates it with the requested manifest digest. Docker's
 // .Id is a configuration-object digest, not the manifest/index digest carried
 // by an OCI @sha256 reference, so only RepoDigests are acceptable evidence.
-func (e *Engine) ExactServiceImageCached(ctx context.Context, image string) (bool, error) {
-	return ExactServiceImageCached(ctx, e.T, image)
-}
-
-// ExactServiceImageCached performs the same observation before an Engine can
-// be constructed, allowing lifecycle state to be injected before rendering.
+//
+// It takes a transport rather than an Engine so it can run before one is
+// constructed, allowing lifecycle state to be injected before rendering.
 func ExactServiceImageCached(ctx context.Context, target transport.Transport, image string) (bool, error) {
 	if target == nil {
 		return false, errors.New("service image cache target is nil")

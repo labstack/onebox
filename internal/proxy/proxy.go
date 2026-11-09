@@ -90,13 +90,6 @@ func HostPaths(n app.Names) Paths {
 	}
 }
 
-// RenderCompose emits the proxy's own compose file. Deliberately a template,
-// not compose-go construction: the shape IS the contract and a reviewer should
-// be able to read it whole.
-func RenderCompose(image, network string, hasEnv bool, entrypoints map[string]app.ProxyEntrypoint) []byte {
-	return RenderComposeForApp(image, DiscoveryImage(""), "onebox", network, hasEnv, entrypoints)
-}
-
 // RenderComposeForApp emits the socketless proxy and its isolated discovery
 // control plane. Only discovery can reach Docker, and it has no network; only
 // proxy has ingress, and its view of discovery's output is read-only.
@@ -361,10 +354,6 @@ func newProxyConfigHash() hash.Hash {
 	h := sha256.New()
 	_, _ = h.Write([]byte(proxyStagingLayoutIdentity))
 	return h
-}
-
-func renderStaticConfig(entrypoints map[string]app.ProxyEntrypoint) []byte {
-	return renderStaticConfigWithDNS(entrypoints, nil)
 }
 
 func renderStaticConfigWithDNS(entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge) []byte {

@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/onebox/internal/engine"
 )
 
-// BackupStatus reads what a protected service's repository can actually
+// BackupStatusGeneration reads what a protected service's repository can actually
 // recover.
 //
 // It mutates nothing and takes no operation lock, which is deliberate: the
@@ -15,12 +15,9 @@ import (
 // in flight, and an operator who has to wait to find out is one who stops
 // asking. The wal-g listing underneath takes a *shared* repository lock with a
 // short timeout, so it reads consistently without queueing behind a backup.
-func (s *Service) BackupStatus(ctx context.Context, service string) (engine.BackupStatus, error) {
-	return s.BackupStatusGeneration(ctx, service, "")
-}
-
-// BackupStatusGeneration reads either the currently bound repository
-// generation or an explicitly selected historical generation.
+//
+// An empty generation reads the currently bound repository generation;
+// otherwise it reads that explicitly selected historical generation.
 func (s *Service) BackupStatusGeneration(ctx context.Context, service, generation string) (engine.BackupStatus, error) {
 	lp, err := s.loadProject(ctx, true)
 	if err != nil {

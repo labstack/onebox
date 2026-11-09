@@ -64,7 +64,7 @@ func seedReleaseChain(t *testing.T, target *transport.Fake, names app.Names, pre
 	}
 }
 
-func TestPreviousAndPrune(t *testing.T) {
+func TestPrevious(t *testing.T) {
 	f := &transport.Fake{Script: []transport.Rule{
 		{Match: regexp.MustCompile(`readlink`), Result: transport.Result{Stdout: "releases/20260702-030000-ccc\n"}},
 		{Match: regexp.MustCompile(`ls -1`), Result: transport.Result{
@@ -76,39 +76,10 @@ func TestPreviousAndPrune(t *testing.T) {
 	if err != nil || prev != "20260701-020000-bbb" {
 		t.Fatalf("prev=%q err=%v", prev, err)
 	}
-	removed, err := Prune(context.Background(), f, names, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(removed) != 1 || removed[0] != "20260701-010000-aaa" {
-		t.Fatalf("removed=%v", removed)
-	}
-	joined := strings.Join(f.Commands, "\n")
-	if !strings.Contains(joined, "rm -rf '/var/lib/onebox/app/releases/20260701-010000-aaa'") {
-		t.Fatalf("prune command missing:\n%s", joined)
-	}
-}
-
-func TestPruneReturnsRemoteRemovalFailure(t *testing.T) {
-	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		switch {
-		case strings.Contains(cmd, "readlink"):
-			return transport.Result{Stdout: "releases/20260103-000000-ccc\n"}, true
-		case strings.Contains(cmd, "ls -1"):
-			return transport.Result{Stdout: "20260101-000000-aaa\n20260102-000000-bbb\n20260103-000000-ccc\n"}, true
-		case strings.Contains(cmd, "rm -rf"):
-			return transport.Result{ExitCode: 13, Stderr: "permission denied"}, true
-		}
-		return transport.Result{}, false
-	}}
-	removed, err := Prune(context.Background(), f, app.Names{App: "sample", BasePath: app.DefaultBasePath}, 2)
-	if len(removed) != 0 || err == nil || !strings.Contains(err.Error(), "prune release 20260101-000000-aaa failed (exit 13): permission denied") {
-		t.Fatalf("removed=%v err=%v", removed, err)
-	}
 }
 
 // Everything under the releases directory is handed to rollback by Previous and
-// counted against retention by PruneCandidates, so anything that is not a
+// to retention by list, so anything that is not a
 // release id has to be excluded rather than assumed absent. An upload staging
 // directory landing there once made rollback activate the debris.
 func TestListIgnoresEntriesThatAreNotReleaseIds(t *testing.T) {
@@ -138,17 +109,17 @@ func TestListIgnoresEntriesThatAreNotReleaseIds(t *testing.T) {
 		t.Errorf("rollback would target %q, not the previous release", prev)
 	}
 
-	candidates, unrecognized, err := PruneCandidates(context.Background(), f, names, 2)
+	ids, unrecognized, err := list(context.Background(), f, names)
 	if err != nil {
-		t.Fatalf("prune candidates: %v", err)
+		t.Fatalf("list: %v", err)
 	}
-	for _, id := range candidates {
+	for _, id := range ids {
 		if !IsID(id) {
-			t.Errorf("prune would remove %q, which is not a release", id)
+			t.Errorf("retention would count %q, which is not a release", id)
 		}
 	}
-	if len(candidates) != 0 {
-		t.Errorf("two real releases with retain=2 should leave nothing to prune, got %v", candidates)
+	if len(ids) != 2 {
+		t.Errorf("want the two real releases, got %v", ids)
 	}
 	// The three non-releases are excluded from rollback and retention, which is
 	// the safe direction — but they still occupy the directory retention is

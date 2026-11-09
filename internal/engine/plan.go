@@ -62,26 +62,6 @@ func HashBytesHex(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (a *Artifact) Save(path string) error {
-	b, err := json.MarshalIndent(a, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, b, 0o644)
-}
-
-func LoadArtifact(path string) (*Artifact, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	a := &Artifact{}
-	if err := json.Unmarshal(b, a); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return a, nil
-}
-
 // VerifyBinding refuses the apply when anything the plan was computed
 // against has changed: environment, config bytes, or host state.
 func (a *Artifact) VerifyBinding(env string, configBytes []byte, fresh HostState) error {
@@ -511,12 +491,6 @@ func (e *Engine) RemotePayloadDigest(ctx context.Context, releaseID string) (str
 		return "", fmt.Errorf("read payload digest for release %q failed (exit %d): %s", releaseID, res.ExitCode, strings.TrimSpace(res.Stderr))
 	}
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(res.Stdout), "-")), nil
-}
-
-// Describe renders the choreography as the exact command list with runtime
-// branches as branches. Placeholders <old>/<new> resolve at apply time.
-func (e *Engine) Describe(remoteCompose string) []string {
-	return e.DescribeWorkloadPlans(remoteCompose, nil)
 }
 
 // DescribeWorkloadPlans renders the approved per-workload action. A retained

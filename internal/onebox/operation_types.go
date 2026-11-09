@@ -1,14 +1,11 @@
 package onebox
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -420,60 +417,6 @@ func (b OperationBinding) validate() error {
 		}
 	}
 	return nil
-}
-
-// Save seals and atomically writes a plan. The receiver is updated with the
-// digest that was persisted.
-func (p *OperationPlan) Save(path string) error {
-	return SaveOperationPlan(path, p)
-}
-
-func SaveOperationPlan(path string, p *OperationPlan) error {
-	if err := p.Seal(); err != nil {
-		return err
-	}
-	encoded, err := json.MarshalIndent(p, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode operation plan: %w", err)
-	}
-	encoded = append(encoded, '\n')
-	if err := writeDurableArtifact(path, ".operation-plan-*", encoded); err != nil {
-		return fmt.Errorf("publish operation plan: %w", err)
-	}
-	return nil
-}
-
-func LoadOperationPlan(path string) (OperationPlan, error) {
-	encoded, err := os.ReadFile(path)
-	if err != nil {
-		return OperationPlan{}, fmt.Errorf("read operation plan: %w", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	var plan OperationPlan
-	if err := decoder.Decode(&plan); err != nil {
-		return OperationPlan{}, fmt.Errorf("decode operation plan: %w", err)
-	}
-	if err := requireJSONEOF(decoder); err != nil {
-		return OperationPlan{}, err
-	}
-	if err := plan.Validate(); err != nil {
-		return OperationPlan{}, fmt.Errorf("validate operation plan: %w", err)
-	}
-	if err := plan.VerifyDigest(); err != nil {
-		return OperationPlan{}, err
-	}
-	return plan, nil
-}
-
-func requireJSONEOF(decoder *json.Decoder) error {
-	var extra any
-	if err := decoder.Decode(&extra); err == io.EOF {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("decode operation plan: %w", err)
-	}
-	return errors.New("decode operation plan: multiple JSON values")
 }
 
 func validOperationKind(kind OperationKind) bool {

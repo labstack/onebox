@@ -240,32 +240,6 @@ type BackupReport struct {
 	KeyMaterial     []MigrationBackupKeyMaterialEvidence `json:"key_material,omitempty"`
 }
 
-func NewBackupReport(plan ExecutablePlan, reportedBy string, reportedAt time.Time, resources []MigrationBackupResourceEvidence, keyMaterial []MigrationBackupKeyMaterialEvidence) (BackupReport, error) {
-	view, err := inspectExecutablePlan(plan)
-	if err != nil {
-		return BackupReport{}, fmt.Errorf("validate backup report plan: %w", err)
-	}
-	if view.migrationBackup == nil {
-		return BackupReport{}, ErrBackupReportNotRequired
-	}
-	resources = append([]MigrationBackupResourceEvidence(nil), resources...)
-	keyMaterial = append([]MigrationBackupKeyMaterialEvidence(nil), keyMaterial...)
-	sort.Slice(resources, func(i, j int) bool { return resources[i].Resource.Component < resources[j].Resource.Component })
-	sort.Slice(keyMaterial, func(i, j int) bool { return keyMaterial[i].Name < keyMaterial[j].Name })
-	binding := view.operation.Binding
-	report := BackupReport{
-		SchemaVersion: BackupReportSchemaVersion,
-		PlanDigest:    view.digest, OperationDigest: view.operation.PlanDigest,
-		Application: binding.Application, Environment: binding.Environment, Server: binding.Server,
-		ReportedBy: strings.TrimSpace(reportedBy), ReportedAt: reportedAt.UTC().Format(time.RFC3339Nano),
-		Resources: resources, KeyMaterial: keyMaterial,
-	}
-	if err := report.Validate(); err != nil {
-		return BackupReport{}, err
-	}
-	return report, nil
-}
-
 // NewBackupReportTemplate projects the exact requirement from a sealed plan.
 // Placeholder values intentionally make the template invalid until the
 // reporting tool replaces them with its own observations.

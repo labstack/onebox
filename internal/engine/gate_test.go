@@ -114,23 +114,6 @@ func TestAutoRollbackStopsWhenIntentCannotBeJournaled(t *testing.T) {
 	}
 }
 
-func TestRemoveNewcomersRejectsRemoteRemovalFailure(t *testing.T) {
-	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		switch {
-		case strings.Contains(cmd, "service='web'") && strings.Contains(cmd, "onebox.release='R1'"):
-			return transport.Result{Stdout: "NEW1\n"}, true
-		case strings.Contains(cmd, "docker stop -t 10 NEW1"):
-			return transport.Result{ExitCode: 55, Stderr: "daemon refused"}, true
-		}
-		return transport.Result{}, false
-	}}
-	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
-	err := e.removeNewcomers(context.Background(), "R1")
-	if err == nil || !strings.Contains(err.Error(), "remove newcomer NEW1 failed (exit 55): daemon refused") {
-		t.Fatalf("remove newcomers error = %v", err)
-	}
-}
-
 // A job with no same-named hook auto-runs `compose run --rm --no-deps <job>` —
 // no `migrate` hook needed in ob.yml.
 func TestJobAutoRunsWithoutHook(t *testing.T) {

@@ -192,29 +192,14 @@ func (s *Service) observeServiceRuntimeStates(ctx context.Context, resolved *app
 	return states, nil
 }
 
-func loadProjectAt(ctx context.Context, configPath, environment string, lenient bool, images app.Images) (*loadedProject, error) {
-	return loadProjectRestricted(ctx, configPath, environment, lenient, images, false)
-}
-
-// loadProjectRestricted optionally narrows the image map to the workloads that
-// cannot render without it.
+// resolveProjectRestricted optionally narrows the image map to the workloads
+// that cannot render without it.
 //
 // A plan's pinned images are digests resolved *after* the plan rendered, so
 // feeding all of them back into the render would produce a different document
 // than the one the plan bound — and the binding check would refuse its own
 // plan. Only a build-sourced workload needs an image to render at all, and for
 // that workload the plan's entry is the same reference the render already used.
-func loadProjectRestricted(ctx context.Context, configPath, environment string, lenient bool, images app.Images, onlyBuilt bool) (*loadedProject, error) {
-	lp, renderImages, err := resolveProjectRestricted(configPath, environment, images, onlyBuilt)
-	if err != nil {
-		return nil, err
-	}
-	if err := renderLoadedProject(ctx, lp, environment, lenient, renderImages); err != nil {
-		return nil, err
-	}
-	return lp, nil
-}
-
 func resolveProjectRestricted(configPath, environment string, images app.Images, onlyBuilt bool) (*loadedProject, app.Images, error) {
 	absConfig, err := filepath.Abs(configPath)
 	if err != nil {

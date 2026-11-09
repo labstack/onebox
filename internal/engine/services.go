@@ -439,14 +439,13 @@ func (e *Engine) writeServiceFile(ctx context.Context, path string, body []byte)
 	tmp := path + ".onebox-tmp"
 	cmd := "umask 077 && cat > " + q(tmp) + " && mv -f " + q(tmp) + " " + q(path)
 	if e.fenceVal != "" {
-		cmd = `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` +
-			cmd + `; else echo onebox-fenced >&2; exit 97; fi`
+		cmd = e.fenceGuarded(cmd)
 	}
 	res, err := e.T.RunInput(ctx, cmd, string(body))
 	if err != nil {
 		return err
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
+	if refusedBy(res, fencedExitCode, "onebox-fenced") {
 		return ErrFenced
 	}
 	if res.ExitCode != 0 {

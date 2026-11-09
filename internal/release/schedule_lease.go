@@ -11,7 +11,10 @@ import (
 )
 
 const scheduleLeaseFile = ".onebox-schedule.lease"
-const scheduleLeaseConflictExitCode = 200
+
+// FlockConflictExitCode is the status every onebox flock invocation reports for
+// an expected collision (--conflict-exit-code), above util-linux's own 64–78.
+const FlockConflictExitCode = 200
 
 // ActiveScheduleLeases returns release ids held by pinned scheduled jobs. The
 // runner takes a shared kernel lock; cleanup probes for an exclusive lock while
@@ -21,8 +24,8 @@ func ActiveScheduleLeases(ctx context.Context, target transport.Transport, names
 	command := "for lease in " + glob + "; do " +
 		"[ -e \"$lease\" ] || continue; " +
 		"[ -f \"$lease\" ] && [ ! -L \"$lease\" ] || exit 74; " +
-		"code=0; /usr/bin/flock --exclusive --nonblock --conflict-exit-code " + strconv.Itoa(scheduleLeaseConflictExitCode) + " \"$lease\" true || code=$?; " +
-		"case $code in 0) ;; " + strconv.Itoa(scheduleLeaseConflictExitCode) + ") dir=${lease%/" + scheduleLeaseFile + "}; printf '%s\\n' \"${dir##*/}\" ;; *) exit $code ;; esac; " +
+		"code=0; /usr/bin/flock --exclusive --nonblock --conflict-exit-code " + strconv.Itoa(FlockConflictExitCode) + " \"$lease\" true || code=$?; " +
+		"case $code in 0) ;; " + strconv.Itoa(FlockConflictExitCode) + ") dir=${lease%/" + scheduleLeaseFile + "}; printf '%s\\n' \"${dir##*/}\" ;; *) exit $code ;; esac; " +
 		"done"
 	result, err := target.Run(ctx, command)
 	if err != nil {

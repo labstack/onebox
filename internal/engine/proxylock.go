@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/labstack/onebox/internal/journal"
@@ -14,86 +12,58 @@ import (
 )
 
 // The HOST lock serializes mutations of host-scoped state (owner and proxy)
-// across runner attempts — same noclobber + TTL + holder-JSON
-// protocol as the app lock, at _host/lock. No epoch and no fence: proxy
-// converge is one short idempotent critical section, not a resumable
-// multi-phase deploy. The one-application-per-host contract means the sole app
-// lock cannot participate in a cross-application cycle. claimHostOwner acquires
-// only the host lock; bootstrap and destroy acquire the app lock before the host
-// lock, and proxy apply acquires only the host lock.
+// across runner attempts — the same remoteLock protocol as the app lock, at
+// _host/lock. No epoch and no fence: proxy converge is one short idempotent
+// critical section, not a resumable multi-phase deploy, so only an expired
+// holder or --break-lock is reclaimable. The one-application-per-host contract
+// means the sole app lock cannot participate in a cross-application cycle.
+// claimHostOwner acquires only the host lock; bootstrap and destroy acquire the
+// app lock before the host lock, and proxy apply acquires only the host lock.
 func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 	e.hostLockVal = ""
 	e.hostLockToken = ""
 	hp := proxy.HostPaths(e.names())
+	ttl := int(e.lockTTL().Seconds())
 	token := fmt.Sprintf("%x", time.Now().UnixNano())
-	meta := lockMeta{
+	b, err := json.Marshal(lockMeta{
 		Owner: journal.DefaultOperator(), DeployID: e.Spec.Name,
-		TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339), Token: token,
+		TTLSeconds: ttl, AcquiredAt: time.Now().UTC().Format(time.RFC3339), Token: token,
+	})
+	if err != nil {
+		return err
 	}
-	b, _ := json.Marshal(meta)
-	create := "mkdir -p " + q(hp.Base) + " && set -C && echo " + q(string(b)) + " > " + q(hp.Lock) + " 2>/dev/null"
-
-	for range 4 {
-		res, err := e.T.Run(ctx, create)
-		if err != nil {
-			return err
-		}
-		if res.ExitCode == 0 {
-			e.hostLockVal = string(b)
-			e.hostLockToken = token
-			return nil
-		}
-		hres, err := e.T.Run(ctx, "cat "+q(hp.Lock)+" 2>/dev/null || true")
-		if err != nil {
-			return err
-		}
-		observed := strings.TrimSpace(hres.Stdout)
-		if observed == "" {
-			continue
-		}
-		var holder lockMeta
-		_ = json.Unmarshal([]byte(observed), &holder)
-		ares, err := e.T.Run(ctx, lockAgeCmd(hp.Lock))
-		if err != nil {
-			return err
-		}
-		age, _ := strconv.Atoi(strings.TrimSpace(ares.Stdout))
-		switch {
-		case age > int(e.lockTTL().Seconds()):
-			e.logf("host lock: holder %s (app %s) expired %ds ago — taking over", holder.Owner, holder.DeployID, age-int(e.lockTTL().Seconds()))
-		case force:
-			e.logf("host lock: FORCE-breaking %s (app %s, age %ds)", holder.Owner, holder.DeployID, age)
-		default:
-			return fmt.Errorf("host lock held by %s (app %s, age %ds, ttl %ds) — another runner is mutating host-scoped state; wait, or use --break-lock after inspecting it",
-				holder.Owner, holder.DeployID, age, int(e.lockTTL().Seconds()))
-		}
-		removeObserved := `if [ "$(cat ` + q(hp.Lock) + ` 2>/dev/null)" = ` + q(observed) + ` ]; then rm -f ` + q(hp.Lock) + `; else exit 75; fi`
-		if res, err := e.T.Run(ctx, removeObserved); err != nil {
-			return fmt.Errorf("break host lock: %w", err)
-		} else if res.ExitCode == 75 {
-			continue
-		} else if res.ExitCode != 0 {
-			return fmt.Errorf("break host lock: %s", strings.TrimSpace(res.Stderr))
-		}
+	lock := remoteLock[lockMeta]{
+		label: "host lock", path: hp.Lock, dir: hp.Base, attempts: 4, force: force,
+		breakHint: "confirm no other runner is mutating host-scoped state, then retry with --break-lock",
+		next:      func(context.Context) (string, error) { return string(b), nil },
+		decide: func(holder lockHolder[lockMeta]) (lockVerdict, error) {
+			h := holder.Meta
+			switch {
+			case holder.Age > ttl:
+				e.logf("host lock: holder %s (app %s) expired %ds ago — taking over", h.Owner, h.DeployID, holder.Age-ttl)
+			case force:
+				e.logf("host lock: FORCE-breaking %s (app %s, age %ds)", h.Owner, h.DeployID, holder.Age)
+			default:
+				return lockRefuse, fmt.Errorf("host lock held by %s (app %s, age %ds, ttl %ds) — another runner is mutating host-scoped state; wait, or use --break-lock after inspecting it",
+					h.Owner, h.DeployID, holder.Age, ttl)
+			}
+			return lockReclaim, nil
+		},
 	}
-	return fmt.Errorf("could not acquire host lock")
+	value, err := lock.acquire(ctx, e)
+	if err != nil {
+		return err
+	}
+	e.hostLockVal = value
+	e.hostLockToken = token
+	return nil
 }
 
-func (e *Engine) releaseHostLock(ctx context.Context) {
-	if e.hostLockVal == "" {
-		return
+func (e *Engine) releaseHostLock(_ context.Context) {
+	if e.hostLockVal != "" && e.releaseRemoteLock(proxy.HostPaths(e.names()).Lock, e.hostLockVal, "host lock") {
+		e.hostLockVal = ""
+		e.hostLockToken = ""
 	}
-	expected := e.hostLockVal
-	path := proxy.HostPaths(e.names()).Lock
-	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	res, err := e.T.Run(cleanupContext, `if [ "$(cat `+q(path)+` 2>/dev/null)" = `+q(expected)+` ]; then rm -f `+q(path)+`; fi`)
-	if err != nil || res.ExitCode != 0 {
-		e.warnf("release host lock failed: %v %s", err, strings.TrimSpace(res.Stderr))
-		return
-	}
-	e.hostLockVal = ""
-	e.hostLockToken = ""
 }
 
 // hostMutate fences host-shared writes with the exact host-lock token. When an
@@ -102,13 +72,9 @@ func (e *Engine) hostMutate(ctx context.Context, cmd string) (res transport.Resu
 	if e.hostLockVal == "" {
 		return res, fmt.Errorf("host mutation attempted without owning the host lock")
 	}
-	guarded := `if [ "$(cat ` + q(proxy.HostPaths(e.names()).Lock) + ` 2>/dev/null)" = ` + q(e.hostLockVal) + ` ]; then ` + cmd + `; else echo onebox-host-fenced >&2; exit 96; fi`
-	res, err = e.mutate(ctx, guarded)
-	if err != nil {
-		return res, err
+	res, err = e.mutate(ctx, guardedCmd(fileHolds(proxy.HostPaths(e.names()).Lock, e.hostLockVal), cmd, "onebox-host-fenced", lockLostExitCode))
+	if err == nil && refusedBy(res, lockLostExitCode, "onebox-host-fenced") {
+		err = ErrFenced
 	}
-	if res.ExitCode == 96 && strings.Contains(res.Stderr, "onebox-host-fenced") {
-		return res, ErrFenced
-	}
-	return res, nil
+	return res, err
 }

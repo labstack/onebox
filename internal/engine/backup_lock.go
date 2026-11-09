@@ -64,7 +64,7 @@ func (e *Engine) backupFencePath(service string) string {
 // AcquireBackupLock acquires the per-service lock beneath the application
 // lock. wait is a bounded contention budget; expiry returns backup_conflict.
 // An expired lock or the same operation identity is reclaimed with a new epoch,
-// fencing the former runner.
+// fencing the former runner. Backup locks do not expose --break-lock.
 func (e *Engine) AcquireBackupLock(ctx context.Context, service, operationID string, wait time.Duration) (int, error) {
 	if e.lockVal == "" {
 		return 0, errors.New("backup lock requires the application lock")
@@ -88,80 +88,51 @@ func (e *Engine) AcquireBackupLock(ctx context.Context, service, operationID str
 	if wait > 0 {
 		maxAttempts += int((wait + backupLockPollInterval - 1) / backupLockPollInterval)
 	}
-	var conflict *BackupConflictError
-	staleReclaims := 0
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-		epoch, err := e.nextBackupEpoch(ctx, service)
-		if err != nil {
-			return 0, err
-		}
-		meta := backupLockMeta{
-			Owner: journal.DefaultOperator(), OperationID: operationID, Service: service,
-			Epoch: epoch, TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: e.Opts.Now().UTC().Format(time.RFC3339),
-		}
-		encoded, _ := json.Marshal(meta)
-		lockValue := string(encoded)
-		create := "set -C; echo " + q(lockValue) + " > " + q(e.backupLockPath(service)) + " 2>/dev/null"
-		res, err := e.T.Run(ctx, create)
-		if err != nil {
-			return 0, err
-		}
-		if res.ExitCode == 0 {
-			if e.backupLockVals == nil {
-				e.backupLockVals = make(map[string]string)
-				e.backupFenceVals = make(map[string]string)
+	ttl := int(e.lockTTL().Seconds())
+	var epoch int
+	lock := remoteLock[backupLockMeta]{
+		label: "backup lock", path: e.backupLockPath(service), attempts: maxAttempts, freeReclaims: 4,
+		breakHint: "confirm no backup or restore of " + service + " is running, then remove " + e.backupLockPath(service) + " by hand",
+		pause:     func() { e.Opts.Sleep(backupLockPollInterval) },
+		next: func(ctx context.Context) (string, error) {
+			var err error
+			if epoch, err = e.nextBackupEpoch(ctx, service); err != nil {
+				return "", err
 			}
-			e.backupLockVals[service] = lockValue
-			if err := e.writeBackupFence(ctx, service, operationID, epoch, lockValue); err != nil {
-				e.ReleaseBackupLock(service)
-				return 0, err
+			encoded, err := json.Marshal(backupLockMeta{
+				Owner: journal.DefaultOperator(), OperationID: operationID, Service: service,
+				Epoch: epoch, TTLSeconds: ttl, AcquiredAt: e.Opts.Now().UTC().Format(time.RFC3339),
+			})
+			return string(encoded), err
+		},
+		// Anything but an expired holder or this very operation is bounded,
+		// retryable contention.
+		decide: func(holder lockHolder[backupLockMeta]) (lockVerdict, error) {
+			if holder.Age > ttl || holder.Meta.OperationID == operationID {
+				return lockReclaim, nil
 			}
-			return epoch, nil
-		}
-
-		observedResult, err := e.T.Run(ctx, "cat "+q(e.backupLockPath(service))+" 2>/dev/null || true")
-		if err != nil {
-			return 0, err
-		}
-		observed := strings.TrimSpace(observedResult.Stdout)
-		if observed == "" {
-			continue
-		}
-		var holder backupLockMeta
-		_ = json.Unmarshal([]byte(observed), &holder)
-		ageResult, err := e.T.Run(ctx, lockAgeCmd(e.backupLockPath(service)))
-		if err != nil {
-			return 0, err
-		}
-		age, _ := strconv.Atoi(strings.TrimSpace(ageResult.Stdout))
-		if age > int(e.lockTTL().Seconds()) || holder.OperationID == operationID {
-			if staleReclaims >= 4 {
-				return 0, errors.New("could not reclaim stale backup lock")
-			}
-			staleReclaims++
-			removeObserved := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(observed) + ` ]; then rm -f ` + q(e.backupLockPath(service)) + `; else exit 75; fi`
-			removed, err := e.T.Run(ctx, removeObserved)
-			if err != nil {
-				return 0, err
-			}
-			if removed.ExitCode == 0 || removed.ExitCode == 75 {
-				attempt-- // a stale-holder race does not consume contention budget
-				continue
-			}
-			return 0, fmt.Errorf("reclaim backup lock: %s", strings.TrimSpace(removed.Stderr))
-		}
-		conflict = &BackupConflictError{Service: service, OperationID: safeBackupHolder(holder.OperationID), AgeSeconds: age}
-		if attempt+1 < maxAttempts {
-			e.Opts.Sleep(backupLockPollInterval)
-		}
+			return lockContended, &BackupConflictError{Service: service, OperationID: safeBackupHolder(holder.Meta.OperationID), AgeSeconds: holder.Age}
+		},
 	}
-	if conflict == nil {
-		conflict = &BackupConflictError{Service: service, OperationID: "unknown", AgeSeconds: 0}
+	lockValue, err := lock.acquire(ctx, e)
+	var raced *lockNotAcquiredError
+	if errors.As(err, &raced) {
+		// Every holder released before we could read it: still contention.
+		err = &BackupConflictError{Service: service, OperationID: "unknown"}
 	}
-	return 0, conflict
+	if err != nil {
+		return 0, err
+	}
+	if e.backupLockVals == nil {
+		e.backupLockVals = make(map[string]string)
+		e.backupFenceVals = make(map[string]string)
+	}
+	e.backupLockVals[service] = lockValue
+	if err := e.writeBackupFence(ctx, service, operationID, epoch, lockValue); err != nil {
+		e.ReleaseBackupLock(service)
+		return 0, err
+	}
+	return epoch, nil
 }
 
 func (e *Engine) nextBackupEpoch(ctx context.Context, service string) (int, error) {
@@ -170,14 +141,12 @@ func (e *Engine) nextBackupEpoch(ctx context.Context, service string) (int, erro
 
 func (e *Engine) writeBackupFence(ctx context.Context, service, operationID string, epoch int, lockValue string) error {
 	fenceValue := operationID + " " + strconv.Itoa(epoch)
-	command := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ]; then ` +
-		atomicEpochWriteCmd(e.backupEpochPath(service), epoch) + `; echo ` + q(fenceValue) + ` > ` + q(e.backupFencePath(service)) +
-		`; else echo onebox-backup-lock-lost >&2; exit 96; fi`
-	result, err := e.T.Run(ctx, command)
+	write := atomicEpochWriteCmd(e.backupEpochPath(service), epoch) + "; echo " + q(fenceValue) + " > " + q(e.backupFencePath(service))
+	result, err := e.T.Run(ctx, guardedCmd(fileHolds(e.backupLockPath(service), lockValue), write, "onebox-backup-lock-lost", lockLostExitCode))
 	if err != nil {
 		return err
 	}
-	if result.ExitCode == 96 && strings.Contains(result.Stderr, "onebox-backup-lock-lost") {
+	if refusedBy(result, lockLostExitCode, "onebox-backup-lock-lost") {
 		return ErrBackupFenced
 	}
 	if result.ExitCode != 0 {
@@ -193,67 +162,41 @@ func (e *Engine) writeBackupFence(ctx context.Context, service, operationID stri
 }
 
 func (e *Engine) ReleaseBackupLock(service string) {
-	expected := e.backupLockVals[service]
-	if expected == "" {
-		return
+	if expected := e.backupLockVals[service]; expected != "" && e.releaseRemoteLock(e.backupLockPath(service), expected, "backup lock") {
+		delete(e.backupLockVals, service)
+		delete(e.backupFenceVals, service)
 	}
-	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	result, err := e.T.Run(cleanupContext, `if [ "$(cat `+q(e.backupLockPath(service))+` 2>/dev/null)" = `+q(expected)+` ]; then rm -f `+q(e.backupLockPath(service))+`; fi`)
-	if err != nil || result.ExitCode != 0 {
-		e.warnf("release backup lock failed: %v %s", err, strings.TrimSpace(result.Stderr))
-		return
-	}
-	delete(e.backupLockVals, service)
-	delete(e.backupFenceVals, service)
+}
+
+// backupOwned is the shell condition that both the exact service lock value
+// and its fence still belong to this runner.
+func (e *Engine) backupOwned(service string) string {
+	return fileHolds(e.backupLockPath(service), e.backupLockVals[service]) + " && " + fileHolds(e.backupFencePath(service), e.backupFenceVals[service])
 }
 
 // StartBackupHeartbeat keeps a service lock fresh only while both its
 // exact lock value and fence still belong to this runner.
 func (e *Engine) StartBackupHeartbeat(ctx context.Context, service string) (func(), error) {
-	lockValue := e.backupLockVals[service]
-	fenceValue := e.backupFenceVals[service]
-	if lockValue == "" || fenceValue == "" {
+	if e.backupLockVals[service] == "" || e.backupFenceVals[service] == "" {
 		return nil, errors.New("backup heartbeat requires service lock ownership")
 	}
-	heartbeatContext, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(e.lockTTL() / 10)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-heartbeatContext.Done():
-				return
-			case <-ticker.C:
-				command := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ] && [ "$(cat ` + q(e.backupFencePath(service)) + ` 2>/dev/null)" = ` + q(fenceValue) + ` ]; then touch -c ` + q(e.backupLockPath(service)) + `; else exit 3; fi`
-				if result, err := e.T.Run(heartbeatContext, command); err == nil && result.ExitCode != 0 && result.ExitCode != 3 {
-					e.warnf("backup heartbeat for %s failed (exit %d): %s", service, result.ExitCode, strings.TrimSpace(result.Stderr))
-				}
-			}
-		}
-	}()
-	return func() { cancel(); <-done }, nil
+	command := "if " + e.backupOwned(service) + "; then touch -c " + q(e.backupLockPath(service)) + "; else exit " + strconv.Itoa(lockNotOwnedExitCode) + "; fi"
+	return e.startLockRefresher(ctx, e.lockTTL()/10, "backup heartbeat for "+service+" failed", func(ctx context.Context) (transport.Result, error) {
+		return e.T.Run(ctx, command)
+	}), nil
 }
 
 // BackupMutate nests the exact service lock/fence guard inside the app
 // fence guard. A runner that loses either authority cannot mutate service data.
 func (e *Engine) BackupMutate(ctx context.Context, service, command string) (transport.Result, error) {
-	lockValue := e.backupLockVals[service]
-	fenceValue := e.backupFenceVals[service]
-	if e.lockVal == "" || e.fenceVal == "" || lockValue == "" || fenceValue == "" {
+	if e.lockVal == "" || e.fenceVal == "" || e.backupLockVals[service] == "" || e.backupFenceVals[service] == "" {
 		return transport.Result{}, errors.New("backup mutation requires application and service lock ownership")
 	}
-	guarded := `if [ "$(cat ` + q(e.backupLockPath(service)) + ` 2>/dev/null)" = ` + q(lockValue) + ` ] && [ "$(cat ` + q(e.backupFencePath(service)) + ` 2>/dev/null)" = ` + q(fenceValue) + ` ]; then ` + command + `; else echo onebox-backup-fenced >&2; exit 98; fi`
-	result, err := e.mutate(ctx, guarded)
-	if err != nil {
-		return result, err
+	result, err := e.mutate(ctx, guardedCmd(e.backupOwned(service), command, "onebox-backup-fenced", backupFencedExitCode))
+	if err == nil && refusedBy(result, backupFencedExitCode, "onebox-backup-fenced") {
+		err = ErrBackupFenced
 	}
-	if result.ExitCode == 98 && strings.Contains(result.Stderr, "onebox-backup-fenced") {
-		return result, ErrBackupFenced
-	}
-	return result, nil
+	return result, err
 }
 
 func safeBackupHolder(value string) string {

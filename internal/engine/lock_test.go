@@ -54,7 +54,7 @@ func TestAtomicApplicationLockCreatePublishesOnlyCompleteMetadata(t *testing.T) 
 	root := t.TempDir()
 	lock := filepath.Join(root, "lock")
 
-	result, err := target.Run(ctx, atomicApplicationLockCreateCmd(lock, "complete metadata"))
+	result, err := target.Run(ctx, atomicLockCreateCmd(lock, "complete metadata"))
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("publish lock: result=%+v err=%v", result, err)
 	}
@@ -66,9 +66,9 @@ func TestAtomicApplicationLockCreatePublishesOnlyCompleteMetadata(t *testing.T) 
 		t.Fatalf("temporary lock candidates leaked: %v, %v", candidates, err)
 	}
 
-	result, err = target.Run(ctx, atomicApplicationLockCreateCmd(lock, "replacement"))
-	if err != nil || result.ExitCode != applicationLockHeldExitCode {
-		t.Fatalf("existing lock result=%+v err=%v, want exit %d", result, err, applicationLockHeldExitCode)
+	result, err = target.Run(ctx, atomicLockCreateCmd(lock, "replacement"))
+	if err != nil || result.ExitCode != lockHeldExitCode {
+		t.Fatalf("existing lock result=%+v err=%v, want exit %d", result, err, lockHeldExitCode)
 	}
 	content, err = os.ReadFile(lock)
 	if err != nil || string(content) != "complete metadata\n" {
@@ -82,9 +82,9 @@ func TestAtomicApplicationLockCreatePublishesOnlyCompleteMetadata(t *testing.T) 
 	}
 	// Override mktemp so the metadata redirect fails before the hard-link
 	// claim. The shared lock path must remain absent and the error must stay an
-	// infrastructure failure, not applicationLockHeldExitCode.
+	// infrastructure failure, not lockHeldExitCode.
 	command := "mktemp() { printf '%s\\n' " + q(unwritableCandidate) + "; }; " +
-		atomicApplicationLockCreateCmd(failedLock, "never published")
+		atomicLockCreateCmd(failedLock, "never published")
 	result, err = target.Run(ctx, command)
 	if err != nil || result.ExitCode != 80 {
 		t.Fatalf("failed metadata write result=%+v err=%v, want exit 80", result, err)
@@ -112,9 +112,9 @@ func TestAtomicApplicationLockCreatePublishesOnlyCompleteMetadata(t *testing.T) 
 					t.Fatal(err)
 				}
 			}
-			result, err := target.Run(ctx, atomicApplicationLockCreateCmd(lockPath, "not published"))
-			if err != nil || result.ExitCode != applicationLockHeldExitCode {
-				t.Fatalf("directory lock result=%+v err=%v, want exit %d", result, err, applicationLockHeldExitCode)
+			result, err := target.Run(ctx, atomicLockCreateCmd(lockPath, "not published"))
+			if err != nil || result.ExitCode != lockHeldExitCode {
+				t.Fatalf("directory lock result=%+v err=%v, want exit %d", result, err, lockHeldExitCode)
 			}
 			entries, err := os.ReadDir(targetDir)
 			if err != nil || len(entries) != 0 {
@@ -124,7 +124,7 @@ func TestAtomicApplicationLockCreatePublishesOnlyCompleteMetadata(t *testing.T) 
 	}
 
 	interruptedLock := filepath.Join(root, "interrupted-lock")
-	command = "link() { kill -HUP $$; return 0; }; " + atomicApplicationLockCreateCmd(interruptedLock, "not published")
+	command = "link() { kill -HUP $$; return 0; }; " + atomicLockCreateCmd(interruptedLock, "not published")
 	result, err = target.Run(ctx, command)
 	if err != nil || result.ExitCode != 129 {
 		t.Fatalf("interrupted claim result=%+v err=%v, want exit 129", result, err)
@@ -145,7 +145,7 @@ func TestAcquireLockSerializesWithScheduledJobs(t *testing.T) {
 		case strings.Contains(cmd, "command -v flock"):
 			return transport.Result{Stdout: "ok\n"}, true
 		case strings.Contains(cmd, "/usr/bin/flock"):
-			return transport.Result{ExitCode: flockConflictExitCode}, true
+			return transport.Result{ExitCode: release.FlockConflictExitCode}, true
 		}
 		return transport.Result{}, false
 	}}
@@ -208,7 +208,7 @@ func TestReleaseLockRemovesOnlyOwnedToken(t *testing.T) {
 func TestAcquireLockHeldFreshRefuses(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
 		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
-			return transport.Result{ExitCode: applicationLockHeldExitCode, Stderr: "cannot overwrite"}, true
+			return transport.Result{ExitCode: lockHeldExitCode, Stderr: "cannot overwrite"}, true
 		}
 		if strings.Contains(cmd, "cat '/var/lib/onebox/app/lock'") {
 			return transport.Result{Stdout: `{"owner":"alice@laptop","deploy_id":"R8","epoch":6}`}, true
@@ -232,7 +232,7 @@ func TestAcquireLockStaleTTLTakesOver(t *testing.T) {
 		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: applicationLockHeldExitCode}, true
+				return transport.Result{ExitCode: lockHeldExitCode}, true
 			}
 			return transport.Result{}, true
 		}
@@ -260,7 +260,7 @@ func TestAcquireLockSameDeployReclaims(t *testing.T) {
 		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: applicationLockHeldExitCode}, true
+				return transport.Result{ExitCode: lockHeldExitCode}, true
 			}
 			return transport.Result{}, true
 		}
@@ -302,7 +302,7 @@ func TestAcquireLockReReadsEpochAfterBreakingStaleLock(t *testing.T) {
 		case strings.Contains(cmd, "lock.candidate.XXXXXX"):
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: applicationLockHeldExitCode}, true // held → forces a break + retry
+				return transport.Result{ExitCode: lockHeldExitCode}, true // held → forces a break + retry
 			}
 			return transport.Result{}, true // win on retry
 		case strings.Contains(cmd, "cat '/var/lib/onebox/app/lock'"):
@@ -479,7 +479,7 @@ func TestForceBreakPrintsHolderJournalTail(t *testing.T) {
 		if strings.Contains(cmd, "lock.candidate.XXXXXX") {
 			creates++
 			if creates == 1 {
-				return transport.Result{ExitCode: applicationLockHeldExitCode}, true
+				return transport.Result{ExitCode: lockHeldExitCode}, true
 			}
 			return transport.Result{}, true
 		}

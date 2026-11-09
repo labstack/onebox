@@ -389,10 +389,10 @@ func TestPinnedScheduledJobsShareApplicationRendezvous(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", strconv.Itoa(flockConflictExitCode), names.ScheduleRunLock(), "true").Run()
+	err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", strconv.Itoa(release.FlockConflictExitCode), names.ScheduleRunLock(), "true").Run()
 	var conflict *exec.ExitError
-	if !errors.As(err, &conflict) || conflict.ExitCode() != flockConflictExitCode {
-		t.Fatalf("exclusive writer result while pinned readers held the rendezvous = %v, want exit %d", err, flockConflictExitCode)
+	if !errors.As(err, &conflict) || conflict.ExitCode() != release.FlockConflictExitCode {
+		t.Fatalf("exclusive writer result while pinned readers held the rendezvous = %v, want exit %d", err, release.FlockConflictExitCode)
 	}
 	if err := os.WriteFile(gate, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -667,7 +667,7 @@ func TestPinnedScheduledJobLockProtocol(t *testing.T) {
 
 	assertLock := func(path string, available bool) {
 		t.Helper()
-		err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", strconv.Itoa(flockConflictExitCode), path, "true").Run()
+		err := exec.CommandContext(ctx, "/usr/bin/flock", "--exclusive", "--nonblock", "--conflict-exit-code", strconv.Itoa(release.FlockConflictExitCode), path, "true").Run()
 		if available && err != nil {
 			t.Fatalf("lock %s remained unavailable: %v", path, err)
 		}

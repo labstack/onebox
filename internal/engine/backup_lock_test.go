@@ -42,10 +42,10 @@ func TestBackupLockReturnsBoundedRetryableBackupConflict(t *testing.T) {
 	createAttempts := 0
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		switch {
-		case strings.HasPrefix(command, "set -C; echo ") && strings.Contains(command, "database.lock"):
+		case strings.Contains(command, "database.lock.candidate.XXXXXX"):
 			createAttempts++
-			return transport.Result{ExitCode: 1}, true
-		case strings.HasPrefix(command, "cat ") && strings.Contains(command, "database.lock"):
+			return transport.Result{ExitCode: lockHeldExitCode}, true
+		case strings.Contains(command, "then cat '/var/lib/onebox/app/backup/locks/database.lock'"):
 			return transport.Result{Stdout: holder + "\n"}, true
 		case strings.HasPrefix(command, "if [ -L ") && strings.Contains(command, "database.lock"):
 			return transport.Result{Stdout: "2\n"}, true
@@ -85,15 +85,15 @@ func TestBackupLockReclaimsStaleHolderWithNewFence(t *testing.T) {
 	createAttempts := 0
 	fake := &transport.Fake{Dynamic: func(command string) (transport.Result, bool) {
 		switch {
-		case strings.HasPrefix(command, "set -C; echo ") && strings.Contains(command, "database.lock"):
+		case strings.Contains(command, "database.lock.candidate.XXXXXX"):
 			createAttempts++
 			if createAttempts == 1 {
-				return transport.Result{ExitCode: 1}, true
+				return transport.Result{ExitCode: lockHeldExitCode}, true
 			}
 			return transport.Result{}, true
 		case strings.Contains(command, "cat ") && strings.Contains(command, "database.epoch"):
 			return transport.Result{Stdout: "4\n"}, true
-		case strings.HasPrefix(command, "cat ") && strings.Contains(command, "database.lock"):
+		case strings.Contains(command, "then cat '/var/lib/onebox/app/backup/locks/database.lock'"):
 			return transport.Result{Stdout: holder + "\n"}, true
 		case strings.HasPrefix(command, "if [ -L ") && strings.Contains(command, "database.lock"):
 			return transport.Result{Stdout: "1\n"}, true

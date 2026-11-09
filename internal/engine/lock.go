@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/journal"
 	"github.com/labstack/onebox/internal/release"
 	"github.com/labstack/onebox/internal/transport"
@@ -42,13 +41,6 @@ type pinnedScheduleLeasePolicy struct {
 // durable application lock: that lock may cover a whole deploy or exec.
 const scheduleRendezvousWaitSeconds = 10
 
-// Commands run under flock normalize expected collisions so their exit status
-// does not depend on shell or flock defaults. util-linux reserves 64–78 for its
-// own errors; keep both sentinels above that range and distinct so
-// infrastructure failures remain visible.
-const applicationLockHeldExitCode = 79
-const flockConflictExitCode = 200
-
 func (e *Engine) base() string      { return release.PathsFor(e.names()).Base }
 func (e *Engine) lockPath() string  { return e.base() + "/lock" }
 func (e *Engine) epochPath() string { return e.base() + "/epoch" }
@@ -72,160 +64,115 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 		return 0, err
 	}
 
-	for range 4 {
-		// Read the epoch fresh on every attempt. A concurrent acquirer may have
-		// persisted a higher epoch between our attempts; fencing relies on a
-		// strictly increasing epoch, so a value read once before the loop could
-		// be reused and collide.
-		epoch, err := e.nextEpoch(ctx, e.epochPath())
-		if err != nil {
-			return 0, err
-		}
-
-		meta := lockMeta{
-			Owner: journal.DefaultOperator(), DeployID: deployID, Epoch: epoch,
-			TTLSeconds: int(e.lockTTL().Seconds()), AcquiredAt: time.Now().UTC().Format(time.RFC3339),
-		}
-		b, _ := json.Marshal(meta)
-		create := atomicApplicationLockCreateCmd(e.lockPath(), string(b))
-		jobs, scheduleErr := e.Spec.ScheduledJobs()
-		if scheduleErr != nil {
-			return 0, scheduleErr
-		}
-		useScheduleLock := e.hasScheduleFlock(ctx)
-		if len(jobs) > 0 && !useScheduleLock {
-			return 0, errors.New("scheduled jobs require a compatible util-linux flock at /usr/bin/flock so lock contention can be distinguished from host failures; install util-linux or upgrade it and deploy again")
-		}
-		if useScheduleLock {
-			// An exclusive scheduled job holds this kernel lock for its whole run;
-			// a pinned job holds it only until its immutable release lease exists.
-			// Take it around atomic application-lock creation so neither side can
-			// pass its check before the other publishes ownership. Keep doing this
-			// after the last schedule is removed: an old unit may already be
-			// starting while that removal deploy begins.
-			create = "/usr/bin/flock --exclusive --timeout " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " " +
-				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
-		}
-
-		res, err := e.T.Run(ctx, create)
-		if err != nil {
-			return 0, err
-		}
-		if res.ExitCode == 0 {
-			e.lockVal = string(b)
-			if useScheduleLock {
-				leased, leaseErr := release.ActiveScheduleLeases(ctx, e.T, e.names())
-				if leaseErr != nil {
-					e.ReleaseLock(ctx)
-					return 0, fmt.Errorf("acquire application lock: cannot establish scheduled-job release leases: %w", leaseErr)
-				}
-				if len(leased) > 0 && !leasePolicy.allow {
-					detail := ""
-					if leasePolicy.conflict != "" {
-						detail = "; this deployment includes " + leasePolicy.conflict
-					}
-					e.ReleaseLock(ctx)
-					return 0, fmt.Errorf("application operation refused: pinned scheduled jobs are running from release(s) %s%s — wait for them to finish",
-						strings.Join(leased, ", "), detail)
-				}
+	ttl := int(e.lockTTL().Seconds())
+	var epoch int
+	var useScheduleLock bool
+	lock := remoteLock[lockMeta]{
+		label: "deploy lock", path: e.lockPath(), attempts: 4, force: force,
+		breakHint: "confirm no deploy is running, then retry with --break-lock",
+		next: func(ctx context.Context) (string, error) {
+			// Read the epoch fresh on every attempt. A concurrent acquirer may
+			// have persisted a higher epoch between our attempts; fencing relies
+			// on a strictly increasing epoch, so a value read once before the
+			// loop could be reused and collide.
+			var err error
+			if epoch, err = e.nextEpoch(ctx, e.epochPath()); err != nil {
+				return "", err
 			}
-			res, err := e.T.Run(ctx, atomicEpochWriteCmd(e.epochPath(), epoch))
+			jobs, err := e.Spec.ScheduledJobs()
 			if err != nil {
-				e.ReleaseLock(ctx)
-				return 0, fmt.Errorf("persist epoch: %w", err)
+				return "", err
 			}
-			if res.ExitCode != 0 {
-				e.ReleaseLock(ctx)
-				return 0, fmt.Errorf("persist epoch: %s", strings.TrimSpace(res.Stderr))
+			useScheduleLock = e.hasScheduleFlock(ctx)
+			if len(jobs) > 0 && !useScheduleLock {
+				return "", errors.New("scheduled jobs require a compatible util-linux flock at /usr/bin/flock so lock contention can be distinguished from host failures; install util-linux or upgrade it and deploy again")
 			}
-			return epoch, nil
-		}
-		if useScheduleLock && res.ExitCode == flockConflictExitCode {
-			return 0, fmt.Errorf("scheduling rendezvous remained busy — run `ob status` to see active jobs, then wait for the current job or application operation to finish")
-		}
-		if res.ExitCode != applicationLockHeldExitCode {
-			detail := strings.TrimSpace(res.Stderr)
-			if detail == "" {
-				detail = "no diagnostic output"
+			b, err := json.Marshal(lockMeta{
+				Owner: journal.DefaultOperator(), DeployID: deployID, Epoch: epoch,
+				TTLSeconds: ttl, AcquiredAt: time.Now().UTC().Format(time.RFC3339),
+			})
+			return string(b), err
+		},
+		wrapCreate: func(create string) string {
+			if !useScheduleLock {
+				return create
 			}
-			return 0, fmt.Errorf("acquire application lock: lock creation or schedule rendezvous failed (exit %d): %s", res.ExitCode, detail)
-		}
-		// held — inspect holder + age
-		hres, err := e.T.Run(ctx, "cat "+q(e.lockPath())+" 2>/dev/null || true")
-		if err != nil {
-			return 0, err
-		}
-		observed := strings.TrimSpace(hres.Stdout)
-		if observed == "" {
-			continue
-		}
-		var holder lockMeta
-		_ = json.Unmarshal([]byte(observed), &holder)
-		ares, err := e.T.Run(ctx, lockAgeCmd(e.lockPath()))
-		if err != nil {
-			return 0, err
-		}
-		age, _ := strconv.Atoi(strings.TrimSpace(ares.Stdout))
-		switch {
-		case age > int(e.lockTTL().Seconds()):
-			e.logf("lock: holder %s (deploy %s) expired %ds ago — taking over", holder.Owner, holder.DeployID, age-int(e.lockTTL().Seconds()))
-		case holder.DeployID == deployID:
-			// resume/abort of the very deploy that holds the lock: safe to
-			// reclaim — the new epoch fences the previous runner regardless
-			e.logf("lock: reclaiming for deploy %s (previous runner is fenced by the new epoch)", deployID)
-		case force:
-			e.logf("lock: FORCE-breaking %s (deploy %s, age %ds) — holder's journal tail:", holder.Owner, holder.DeployID, age)
-			tres, _ := e.T.Run(ctx, "tail -5 "+q(e.base()+"/journal/"+sanitizeID(holder.DeployID)+".jsonl")+" 2>/dev/null || true")
-			for _, l := range strings.Split(strings.TrimSpace(tres.Stdout), "\n") {
-				if l != "" {
-					e.logf("  %s", l)
+			// An exclusive scheduled job holds this kernel lock for its whole
+			// run; a pinned job holds it only until its immutable release lease
+			// exists. Take it around atomic application-lock creation so
+			// neither side can pass its check before the other publishes
+			// ownership. Keep doing this after the last schedule is removed: an
+			// old unit may already be starting while that removal deploy begins.
+			return "/usr/bin/flock --exclusive --timeout " + strconv.Itoa(scheduleRendezvousWaitSeconds) + " --conflict-exit-code " + strconv.Itoa(release.FlockConflictExitCode) + " " +
+				q(e.names().ScheduleRunLock()) + " /bin/sh -c " + q(create)
+		},
+		createFailed: func(res transport.Result) error {
+			if useScheduleLock && res.ExitCode == release.FlockConflictExitCode {
+				return fmt.Errorf("scheduling rendezvous remained busy — run `ob status` to see active jobs, then wait for the current job or application operation to finish")
+			}
+			return fmt.Errorf("acquire application lock: lock creation or schedule rendezvous failed (exit %d): %s", res.ExitCode, diagnostic(res))
+		},
+		decide: func(holder lockHolder[lockMeta]) (lockVerdict, error) {
+			h := holder.Meta
+			switch {
+			case holder.Age > ttl:
+				e.logf("lock: holder %s (deploy %s) expired %ds ago — taking over", h.Owner, h.DeployID, holder.Age-ttl)
+			case h.DeployID == deployID:
+				// resume/abort of the very deploy that holds the lock: safe to
+				// reclaim — the new epoch fences the previous runner regardless
+				e.logf("lock: reclaiming for deploy %s (previous runner is fenced by the new epoch)", deployID)
+			case force:
+				e.logf("lock: FORCE-breaking %s (deploy %s, age %ds) — holder's journal tail:", h.Owner, h.DeployID, holder.Age)
+				tres, _ := e.T.Run(ctx, "tail -5 "+q(e.base()+"/journal/"+sanitizeID(h.DeployID)+".jsonl")+" 2>/dev/null || true")
+				for _, l := range strings.Split(strings.TrimSpace(tres.Stdout), "\n") {
+					if l != "" {
+						e.logf("  %s", l)
+					}
 				}
+			default:
+				return lockRefuse, fmt.Errorf("deploy lock held by %s (deploy %s, age %ds, ttl %ds) — wait, or --break-lock to break it",
+					h.Owner, h.DeployID, holder.Age, ttl)
 			}
-		default:
-			return 0, fmt.Errorf("deploy lock held by %s (deploy %s, age %ds, ttl %ds) — wait, or --break-lock to break it",
-				holder.Owner, holder.DeployID, age, int(e.lockTTL().Seconds()))
+			return lockReclaim, nil
+		},
+	}
+	value, err := lock.acquire(ctx, e)
+	if err != nil {
+		return 0, err
+	}
+	e.lockVal = value
+	if useScheduleLock {
+		leased, leaseErr := release.ActiveScheduleLeases(ctx, e.T, e.names())
+		if leaseErr != nil {
+			e.ReleaseLock(ctx)
+			return 0, fmt.Errorf("acquire application lock: cannot establish scheduled-job release leases: %w", leaseErr)
 		}
-		removeObserved := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(observed) + ` ]; then rm -f ` + q(e.lockPath()) + `; else exit 75; fi`
-		if res, err := e.T.Run(ctx, removeObserved); err != nil {
-			return 0, fmt.Errorf("break lock: %w", err)
-		} else if res.ExitCode == 75 {
-			continue
-		} else if res.ExitCode != 0 {
-			return 0, fmt.Errorf("break lock: %s", strings.TrimSpace(res.Stderr))
+		if len(leased) > 0 && !leasePolicy.allow {
+			detail := ""
+			if leasePolicy.conflict != "" {
+				detail = "; this deployment includes " + leasePolicy.conflict
+			}
+			e.ReleaseLock(ctx)
+			return 0, fmt.Errorf("application operation refused: pinned scheduled jobs are running from release(s) %s%s — wait for them to finish",
+				strings.Join(leased, ", "), detail)
 		}
 	}
-	return 0, fmt.Errorf("could not acquire deploy lock")
+	res, err := e.T.Run(ctx, atomicEpochWriteCmd(e.epochPath(), epoch))
+	if err != nil {
+		e.ReleaseLock(ctx)
+		return 0, fmt.Errorf("persist epoch: %w", err)
+	}
+	if res.ExitCode != 0 {
+		e.ReleaseLock(ctx)
+		return 0, fmt.Errorf("persist epoch: %s", strings.TrimSpace(res.Stderr))
+	}
+	return epoch, nil
 }
 
-// atomicApplicationLockCreateCmd writes complete metadata before publishing
-// the lock path. A noclobber redirect can create an empty lock before its write
-// fails (for example on ENOSPC), which makes an infrastructure error look like
-// contention. A same-directory hard link is an atomic no-replace claim, and
-// removing the temporary name leaves the claimed inode at lockPath.
-func atomicApplicationLockCreateCmd(lockPath, value string) string {
-	tmpPattern := lockPath + ".candidate.XXXXXX"
-	return "umask 077; tmp=$(mktemp " + q(tmpPattern) + ") || exit 80; " +
-		"cleanup() { rm -f \"$tmp\" || true; }; trap cleanup 0; trap 'exit 129' 1; trap 'exit 130' 2; trap 'exit 143' 15; " +
-		"printf '%s\\n' " + q(value) + " >\"$tmp\" || exit 80; " +
-		// Unlike ln, the POSIX link utility treats its second operand as the
-		// exact new path even when that path names a directory.
-		"if link \"$tmp\" " + q(lockPath) + "; then exit 0; fi; " +
-		"{ [ -e " + q(lockPath) + " ] || [ -L " + q(lockPath) + " ]; } && exit " + strconv.Itoa(applicationLockHeldExitCode) + "; exit 80"
-}
-
-func (e *Engine) ReleaseLock(ctx context.Context) {
-	if e.lockVal == "" {
-		return
+func (e *Engine) ReleaseLock(_ context.Context) {
+	if e.lockVal != "" && e.releaseRemoteLock(e.lockPath(), e.lockVal, "lock") {
+		e.lockVal = ""
 	}
-	expected := e.lockVal
-	cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	res, err := e.T.Run(cleanupContext, `if [ "$(cat `+q(e.lockPath())+` 2>/dev/null)" = `+q(expected)+` ]; then rm -f `+q(e.lockPath())+`; fi`)
-	if err != nil || res.ExitCode != 0 {
-		e.warnf("release lock failed: %v %s", err, strings.TrimSpace(res.Stderr))
-		return
-	}
-	e.lockVal = ""
 }
 
 func (e *Engine) lockTTL() time.Duration {
@@ -235,102 +182,35 @@ func (e *Engine) lockTTL() time.Duration {
 	return 10 * time.Minute
 }
 
-// lockAgeCmd prints a lock file's age in seconds, structured so BOTH callers
-// (AcquireLock and acquireHostLock: age > ttl → take over, else refuse) fail
-// CLOSED wherever the shell can observe the lock:
-//
-//   - dangling symlink     → age 0 → caller refuses; checked FIRST because BSD
-//     stat can't detect it (see the inline note on -L/-e below)
-//   - stat succeeds       → now − mtime, the real age
-//   - stat fails, present  → age 0 → caller refuses; we won't break another
-//     holder's lock we can't read (a torn/ESTALE stat)
-//   - truly absent         → maximal age (`date +%s`) → take over (the holder
-//     released it between our failed create and this check)
-//
-// Dangling-check first, then stat, so a present-but-unstattable lock is caught
-// by `-e`/`-L` and refused rather than misread as absent. Absence itself is
-// established rather than assumed: if a directory on the way is unsearchable,
-// neither stat nor `-e`/`-L` can observe the lock, and that used to read as
-// absent and be taken over (fail open). UndeterminedArm now turns it into age
-// 0, so the guarantee is "fail closed", not "fail closed while observable".
-//
-// `stat -c %Y` is GNU; `stat -f %m` is the BSD/macOS fallback (the e2e suite
-// drives a macOS box through the Local transport). path is quoted here, so
-// callers pass it raw. Callers that expose `--break-lock` apply it before the refusal
-// default. AcquireLock also reclaims a same-deploy holder; backup locks do
-// not expose the generic break override.
-func lockAgeCmd(path string) string {
-	qpath := q(path)
-	// A dangling symlink is "present but not resolvable" → fail closed (age 0).
-	// Detect it FIRST and portably: `test -e` follows the link (false when the
-	// target is gone) while `test -L` stays true. Relying on stat to fail here is
-	// NOT portable — BSD stat (macOS) lstat's a symlink and returns the LINK's
-	// own mtime, so a dangling lock would read as fresh. GNU stat dereferences.
-	return "if [ -L " + qpath + " ] && [ ! -e " + qpath + " ]; then echo 0; " +
-		"elif M=$(stat -c %Y " + qpath + " 2>/dev/null || stat -f %m " + qpath + " 2>/dev/null); then echo $(( $(date +%s) - M )); " +
-		"elif [ -e " + qpath + " ] || [ -L " + qpath + " ]; then echo 0; " +
-		// Absence has to be established, not assumed. If a directory on the
-		// way cannot be searched, neither stat nor -e/-L can see the lock,
-		// and answering "maximal age" hands the deploy a lock that may be
-		// held right now — the one false absence whose cost is two
-		// concurrent mutators rather than a misleading report. The arm runs
-		// in a subshell so its refusal becomes age 0 (fail closed) rather
-		// than an exit status this command's callers do not read.
-		"else if ( " + app.UndeterminedArm(path) + "true ); then date +%s; else echo 0; fi; fi"
-}
-
 // StartHeartbeat keeps the lock fresh while the deploy runs; a crashed
-// runner stops touching it and the TTL frees the lock.
+// runner stops touching it and the TTL frees the lock. A refresh failure is
+// surfaced so it doesn't resurface later as a baffling ErrFenced.
 func (e *Engine) StartHeartbeat(ctx context.Context) (stop func()) {
-	hctx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		t := time.NewTicker(e.lockTTL() / 10)
-		defer t.Stop()
-		for {
-			select {
-			case <-hctx.Done():
-				return
-			case <-t.C:
-				// A no-op (exit 3, fence no longer ours) is expected; any OTHER
-				// non-zero is a genuine refresh failure (transport down, EACCES,
-				// full disk) that leaves the lock silently going stale — surface it
-				// so it doesn't resurface later as a baffling ErrFenced. A transport
-				// error during shutdown (hctx cancelled) is not a failure.
-				if res, err := e.refreshLock(hctx); err == nil && res.ExitCode != 0 && res.ExitCode != 3 {
-					e.warnf("heartbeat: lock refresh failed (exit %d): %s", res.ExitCode, strings.TrimSpace(res.Stderr))
-				}
-			}
-		}
-	}()
-	return func() { cancel(); <-done }
+	return e.startLockRefresher(ctx, e.lockTTL()/10, "heartbeat: lock refresh failed", e.refreshLock)
 }
 
 // refreshLock refreshes the lock's mtime, but only while the fence still names
 // this runner and only if the lock already exists — `touch -c` never creates,
-// so a lock another runner deleted on takeover is never resurrected. Exit 3
-// means the fence is no longer ours (a newer deploy re-fenced us): a no-op, not
-// a failure.
+// so a lock another runner deleted on takeover is never resurrected. Exit
+// lockNotOwnedExitCode means the fence is no longer ours (a newer deploy
+// re-fenced us): a no-op, not a failure.
 func (e *Engine) refreshLock(ctx context.Context) (transport.Result, error) {
-	cmd := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then touch -c ` + q(e.lockPath()) + `; else exit 3; fi`
-	return e.T.Run(ctx, cmd)
+	return e.T.Run(ctx, "if "+fileHolds(e.fencePath(), e.fenceVal)+"; then touch -c "+q(e.lockPath())+"; else exit "+strconv.Itoa(lockNotOwnedExitCode)+"; fi")
 }
 
 // WriteFence stamps the host with this deploy's identity. Every mutating
 // command checks it host-side (mutate); a newer deploy re-stamps and the old
-// runner's next mutation dies with exit 97 — locally, no cross-host call.
+// runner's next mutation dies with fencedExitCode — locally, no cross-host call.
 func (e *Engine) WriteFence(ctx context.Context, deployID string, epoch int) error {
 	if e.lockVal == "" {
 		return fmt.Errorf("write fence: app lock is not owned")
 	}
 	val := deployID + " " + strconv.Itoa(epoch)
-	cmd := `if [ "$(cat ` + q(e.lockPath()) + ` 2>/dev/null)" = ` + q(e.lockVal) + ` ]; then echo ` + q(val) + ` > ` + q(e.fencePath()) + `; else echo onebox-lock-lost >&2; exit 96; fi`
-	res, err := e.T.Run(ctx, cmd)
+	res, err := e.T.Run(ctx, guardedCmd(fileHolds(e.lockPath(), e.lockVal), "echo "+q(val)+" > "+q(e.fencePath()), "onebox-lock-lost", lockLostExitCode))
 	if err != nil {
 		return err
 	}
-	if res.ExitCode == 96 && strings.Contains(res.Stderr, "onebox-lock-lost") {
+	if refusedBy(res, lockLostExitCode, "onebox-lock-lost") {
 		return ErrFenced
 	}
 	if res.ExitCode != 0 {
@@ -340,21 +220,21 @@ func (e *Engine) WriteFence(ctx context.Context, deployID string, epoch int) err
 	return nil
 }
 
+func (e *Engine) fenceGuarded(cmd string) string {
+	return guardedCmd(fileHolds(e.fencePath(), e.fenceVal), cmd, "onebox-fenced", fencedExitCode)
+}
+
 // mutate runs a mutating command behind the fence guard. Read-only commands
 // use e.T.Run directly.
 func (e *Engine) mutate(ctx context.Context, cmd string) (res transport.Result, err error) {
 	if e.fenceVal == "" {
 		return e.T.Run(ctx, cmd)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
-	res, err = e.T.Run(ctx, guarded)
-	if err != nil {
-		return res, err
+	res, err = e.T.Run(ctx, e.fenceGuarded(cmd))
+	if err == nil && refusedBy(res, fencedExitCode, "onebox-fenced") {
+		err = ErrFenced
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
-		return res, ErrFenced
-	}
-	return res, nil
+	return res, err
 }
 
 // mutateInput is mutate's stdin-carrying counterpart. Manifest/checkpoint
@@ -364,15 +244,11 @@ func (e *Engine) mutateInput(ctx context.Context, cmd, input string) (res transp
 	if e.fenceVal == "" {
 		return e.T.RunInput(ctx, cmd, input)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
-	res, err = e.T.RunInput(ctx, guarded, input)
-	if err != nil {
-		return res, err
+	res, err = e.T.RunInput(ctx, e.fenceGuarded(cmd), input)
+	if err == nil && refusedBy(res, fencedExitCode, "onebox-fenced") {
+		err = ErrFenced
 	}
-	if res.ExitCode == 97 && strings.Contains(res.Stderr, "onebox-fenced") {
-		return res, ErrFenced
-	}
-	return res, nil
+	return res, err
 }
 
 // mutateStream is mutate's streaming counterpart. It preserves stdout and
@@ -382,8 +258,7 @@ func (e *Engine) mutateStream(ctx context.Context, cmd string, stdout, stderr io
 	if e.fenceVal == "" {
 		return e.T.RunStream(ctx, cmd, stdout, stderr)
 	}
-	guarded := `if [ "$(cat ` + q(e.fencePath()) + ` 2>/dev/null)" = ` + q(e.fenceVal) + ` ]; then ` + cmd + `; else echo onebox-fenced >&2; exit 97; fi`
-	return e.T.RunStream(ctx, guarded, stdout, stderr)
+	return e.T.RunStream(ctx, e.fenceGuarded(cmd), stdout, stderr)
 }
 
 // mutateChecked is the default for mutations whose success is required. The

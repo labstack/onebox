@@ -15,8 +15,8 @@ func TestHostLockHappyPath(t *testing.T) {
 		t.Fatalf("%v\n%s", err, strings.Join(f.Commands, "\n"))
 	}
 	seq := strings.Join(f.Commands, "\n")
-	if !strings.Contains(seq, "set -C") || !strings.Contains(seq, "/var/lib/onebox/_host/lock") {
-		t.Fatalf("noclobber host lock creation missing:\n%s", seq)
+	if !strings.Contains(seq, `link "$tmp" '/var/lib/onebox/_host/lock'`) || strings.Contains(seq, "set -C") {
+		t.Fatalf("host lock must be published by an atomic hard link, never noclobber:\n%s", seq)
 	}
 	e.releaseHostLock(context.Background())
 	if !strings.Contains(strings.Join(f.Commands, "\n"), "rm -f '/var/lib/onebox/_host/lock'") {
@@ -26,8 +26,8 @@ func TestHostLockHappyPath(t *testing.T) {
 
 func TestHostLockHeldFreshRefuses(t *testing.T) {
 	f := &transport.Fake{Dynamic: func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "set -C") {
-			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
+		if strings.Contains(cmd, "_host/lock.candidate.XXXXXX") {
+			return transport.Result{ExitCode: lockHeldExitCode}, true
 		}
 		if strings.Contains(cmd, "cat '/var/lib/onebox/_host/lock'") {
 			return transport.Result{Stdout: `{"owner":"alice@laptop","deploy_id":"unlock","epoch":0}`}, true
@@ -48,8 +48,8 @@ func TestHostLockExpiredTakesOver(t *testing.T) {
 	broke := false
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "set -C") && !broke {
-			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
+		if strings.Contains(cmd, "_host/lock.candidate.XXXXXX") && !broke {
+			return transport.Result{ExitCode: lockHeldExitCode}, true
 		}
 		if strings.Contains(cmd, "rm -f '/var/lib/onebox/_host/lock'") {
 			broke = true
@@ -73,8 +73,8 @@ func TestHostLockForceBreaks(t *testing.T) {
 	broke := false
 	f := &transport.Fake{}
 	f.Dynamic = func(cmd string) (transport.Result, bool) {
-		if strings.Contains(cmd, "set -C") && !broke {
-			return transport.Result{ExitCode: 1, Stderr: "cannot overwrite"}, true
+		if strings.Contains(cmd, "_host/lock.candidate.XXXXXX") && !broke {
+			return transport.Result{ExitCode: lockHeldExitCode}, true
 		}
 		if strings.Contains(cmd, "rm -f '/var/lib/onebox/_host/lock'") {
 			broke = true

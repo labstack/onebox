@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/notify"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // A scheduled job runs when nobody is watching, so it runs on the host's own
@@ -329,14 +330,14 @@ func scheduleLockLines(names app.Names, job, deployLock, applicationLock string,
 		"skip_marker=\"$state.skip.${INVOCATION_ID:-}\"",
 		"stand_aside() { umask 077; printf 'skipped=%s\\noperation=%s\\ninputs=%s\\n' \"$1\" \"$operation\" \"$inputs_json\" >\"$skip_marker\"; echo \"onebox: skipped: $1\" >&2; exit 0; }",
 		"exec 9>" + q(names.ScheduledJobRunLock(job)),
-		"lock_code=0; /usr/bin/flock --exclusive --nonblock --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " 9 || lock_code=$?; case $lock_code in 0) ;; " + strconv.Itoa(flockConflictExitCode) + ") stand_aside 'another run of this job is still in progress' ;; *) echo 'onebox: cannot acquire the scheduled-job lock' >&2; exit \"$lock_code\" ;; esac",
+		"lock_code=0; /usr/bin/flock --exclusive --nonblock --conflict-exit-code " + strconv.Itoa(release.FlockConflictExitCode) + " 9 || lock_code=$?; case $lock_code in 0) ;; " + strconv.Itoa(release.FlockConflictExitCode) + ") stand_aside 'another run of this job is still in progress' ;; *) echo 'onebox: cannot acquire the scheduled-job lock' >&2; exit \"$lock_code\" ;; esac",
 		// Only the activation that wrote a note removes it, so one lost
 		// between the runner exiting and ExecStopPost — a power cut, a killed
 		// systemd — would sit here forever. Swept a day later, under the job
 		// lock, which is long past any live note's few milliseconds.
 		"find " + q(names.AppDir()+"/schedule") + " -maxdepth 1 -name " + q(job+".state.skip.*") + " -mtime +1 -delete 2>/dev/null || true",
 		"exec 8>" + q(names.ScheduleRunLock()),
-		"lock_code=0; /usr/bin/flock " + rendezvousMode + " " + waitMode + " --conflict-exit-code " + strconv.Itoa(flockConflictExitCode) + " 8 || lock_code=$?; case $lock_code in 0) ;; " + strconv.Itoa(flockConflictExitCode) + ") skip " + q(busyReason) + " ;; *) echo 'onebox: cannot acquire the application scheduling lock' >&2; exit \"$lock_code\" ;; esac",
+		"lock_code=0; /usr/bin/flock " + rendezvousMode + " " + waitMode + " --conflict-exit-code " + strconv.Itoa(release.FlockConflictExitCode) + " 8 || lock_code=$?; case $lock_code in 0) ;; " + strconv.Itoa(release.FlockConflictExitCode) + ") skip " + q(busyReason) + " ;; *) echo 'onebox: cannot acquire the application scheduling lock' >&2; exit \"$lock_code\" ;; esac",
 		"if [ -e " + q(applicationLock) + " ] && [ \"$(" + lockAgeCmd(applicationLock) + ")\" -le " + strconv.Itoa(ttlSeconds) + " ]; then skip 'an application operation holds the deploy lock'; fi",
 	}
 }

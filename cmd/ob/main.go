@@ -44,7 +44,7 @@ func newRootCmd() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Args:          cobra.NoArgs,
+		Args:          rootArgs,
 		RunE:          showCommandHelp,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			if err := validateOutputMode(cmd, g); err != nil {
@@ -118,6 +118,21 @@ func resolveDefaultConfigPath(cmd *cobra.Command, g *globalFlags) {
 	if info, err := os.Stat(alternateProjectFile); err == nil && !info.IsDir() {
 		g.ConfigPath = alternateProjectFile
 	}
+}
+
+// removedCommands answers a command that no longer exists with what replaced
+// it, instead of a bare "unknown command" that sends a user to the changelog.
+var removedCommands = map[string]string{
+	"abort": "`ob abort` was removed: `ob rollback` now reverts an interrupted deploy (and `--break-migration-gate` moved with it)",
+}
+
+func rootArgs(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		if note, ok := removedCommands[args[0]]; ok {
+			return errors.New(note)
+		}
+	}
+	return cobra.NoArgs(cmd, args)
 }
 
 // showCommandHelp makes command groups participate in Cobra's execution

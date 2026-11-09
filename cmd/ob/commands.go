@@ -136,12 +136,16 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(approveCmd)
 
 	var planFile, approvalFile, backupReportFile, migrationBackupOverrideReason string
-	var deployRedeploy, deployBreakLock bool
+	var deployRedeploy, deployBreakLock, deployRemovedYes bool
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
 		Long:  "Release: run pre-release jobs, replace workloads behind their health checks,\nverify, and move the current symlink.\n\nThis is the only way an application reaches a host. It takes the deploy lock,\nfences any older runner, journals every phase, drains connections before\nstopping a container, and can roll back. Without --plan it plans inline and\nasks for confirmation; with --plan it applies exactly what was reviewed.\n\nIf it is interrupted, `ob resume` finishes it and `ob rollback` reverts it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if deployRemovedYes {
+				return writeEarlyOperationFailure(cmd, g, errors.New(
+					"--yes was removed: interactive `ob deploy` always asks; for an unattended deploy run `ob plan`, then `ob deploy --plan ob-plan.json` (with `ob approve` when policy.requireApproval is on)"))
+			}
 			if err := resolveImages(); err != nil {
 				return err
 			}
@@ -156,6 +160,9 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd.Flags().BoolVar(&deployRedeploy, "redeploy", false, "deploy even when nothing changed (fresh roll of identical content)")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
 	deployCmd.Flags().BoolVar(&deployBreakLock, "break-lock", false, "break a stale deploy lock after inspecting its holder")
+	// Accepted only to explain its removal; hidden from help and the reference.
+	deployCmd.Flags().BoolVarP(&deployRemovedYes, "yes", "y", false, "removed")
+	_ = deployCmd.Flags().MarkHidden("yes")
 	root.AddCommand(deployCmd)
 
 	var bootstrapBreakLock bool

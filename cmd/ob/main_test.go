@@ -177,3 +177,20 @@ func TestEveryTopLevelCommandHasAHelpGroup(t *testing.T) {
 		}
 	}
 }
+
+// A removed command or flag names its replacement rather than failing as if
+// it had never existed.
+func TestRemovedCommandAndFlagNameTheirReplacement(t *testing.T) {
+	dir := writeProject(t)
+	if _, err := run(t, dir, "abort"); err == nil || !strings.Contains(err.Error(), "ob rollback") {
+		t.Errorf("ob abort: %v, want a pointer to ob rollback", err)
+	}
+	for _, flag := range []string{"-y", "--yes"} {
+		if _, err := run(t, dir, "deploy", flag); err == nil || !strings.Contains(err.Error(), "--yes was removed") || !strings.Contains(err.Error(), "ob deploy --plan") {
+			t.Errorf("ob deploy %s: %v, want the removal note and the unattended path", flag, err)
+		}
+	}
+	if _, err := run(t, dir, "bogus"); err == nil || !strings.Contains(err.Error(), `unknown command "bogus"`) {
+		t.Errorf("an unknown command lost its plain error: %v", err)
+	}
+}

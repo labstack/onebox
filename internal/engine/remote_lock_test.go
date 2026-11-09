@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
+	"sync"
 )
 
 // remoteLockCase drives one of the three remote locks against a fake host.
@@ -193,5 +195,58 @@ func TestRealShellBackupLockRefusesEmptyLeftover(t *testing.T) {
 	engine.ReleaseBackupLock("database")
 	if _, err := os.Lstat(lock); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("release left the lock: %v", err)
+	}
+}
+
+// Over a real shell, many runners racing for one backup lock: exactly one may
+// win, every other one must see contention, and no candidate file may leak.
+// This is the property the link-based create exists for.
+func TestRealShellBackupLockAdmitsExactlyOneConcurrentRunner(t *testing.T) {
+	base := t.TempDir()
+	const runners = 8
+	engines := make([]*Engine, runners)
+	for i := range engines {
+		engines[i] = New(
+			&app.Resolved{Spec: &app.Spec{Name: "example", BasePath: base}, Env: "production"},
+			nil, transport.NewLocal(),
+			Options{Out: io.Discard, LockTTL: time.Minute, Sleep: func(time.Duration) {}},
+		)
+		engines[i].lockVal = "app-lock"
+	}
+	lock := engines[0].backupLockPath("database")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make([]error, runners)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range engines {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, errs[i] = engines[i].AcquireBackupLock(context.Background(), "database", fmt.Sprintf("op-%d", i), 0)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	winners := 0
+	for i, err := range errs {
+		var conflict *BackupConflictError
+		switch {
+		case err == nil:
+			winners++
+		case errors.As(err, &conflict):
+		default:
+			t.Errorf("runner %d: %v, want success or backup contention", i, err)
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("%d runners hold the backup lock at once, want exactly 1: %v", winners, errs)
+	}
+	if candidates, _ := filepath.Glob(lock + ".candidate.*"); len(candidates) != 0 {
+		t.Fatalf("temporary lock candidates leaked: %v", candidates)
 	}
 }

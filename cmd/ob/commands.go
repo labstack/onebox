@@ -140,7 +140,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
-		Long:  "Release: run pre-release jobs, replace workloads behind their health checks,\nverify, and move the current symlink.\n\nThis is the only way an application reaches a host. It takes the deploy lock,\nfences any older runner, journals every phase, drains connections before\nstopping a container, and can roll back. Without --plan it plans inline and\nasks for confirmation; with --plan it applies exactly what was reviewed.\n\nIf it is interrupted, `ob resume` finishes it and `ob abort` reverts it.",
+		Long:  "Release: run pre-release jobs, replace workloads behind their health checks,\nverify, and move the current symlink.\n\nThis is the only way an application reaches a host. It takes the deploy lock,\nfences any older runner, journals every phase, drains connections before\nstopping a container, and can roll back. Without --plan it plans inline and\nasks for confirmation; with --plan it applies exactly what was reviewed.\n\nIf it is interrupted, `ob resume` finishes it and `ob rollback` reverts it.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := resolveImages(); err != nil {
 				return err
@@ -175,14 +175,30 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	bootstrapCmd.Flags().BoolVar(&bootstrapBreakLock, "break-lock", false, "break a stale bootstrap lock after inspecting its holder")
 	root.AddCommand(bootstrapCmd)
 
-	root.AddCommand(&cobra.Command{
+	var rollbackBreakLock, rollbackBreakMigrationGate bool
+	rollbackCmd := &cobra.Command{
 		Use:   "rollback",
-		Short: "re-release the previous release dir (pinned local image)",
-		Long:  "Re-activate the previous release from the directory still on the host.\n\nNothing is pulled and nothing is rebuilt: the previous release's images are\nalready there, which is what makes this fast and available when a registry is\nnot. Refused when there is no previous release, or when its snapshot is\nunavailable or unusable. Supporting services are not rolled back, so a\nmigration a job already applied stays applied — moving the symlink does\nnot undo it.",
+		Short: "go back: revert an interrupted deploy, or re-release the previous release",
+		Long: "Return to the last release that was serving.\n\n" +
+			"If a deploy was interrupted, rollback reverts it to the release that was\n" +
+			"serving before it. That is gated on what the interrupted deploy already did:\n" +
+			"a migration whose effect cannot be reversed by re-activating a directory\n" +
+			"refuses, because the containers would run against data they do not match.\n\n" +
+			"Otherwise rollback re-activates the previous release from the directory still\n" +
+			"on the host. Nothing is pulled and nothing is rebuilt, which is what makes it\n" +
+			"fast and available when a registry is not. Refused when there is no previous\n" +
+			"release, or when its snapshot is unavailable or unusable. Supporting services\n" +
+			"are not rolled back, so a migration a job already applied stays applied.\n\n" +
+			"To finish an interrupted deploy instead of reverting it, use `ob resume`.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindRollback}, "rollback")
+			return runMutation(cmd, g, onebox.ExecuteRequest{
+				Kind: onebox.KindRollback, BreakLock: rollbackBreakLock, BreakMigrationGate: rollbackBreakMigrationGate,
+			}, "rollback")
 		},
-	})
+	}
+	rollbackCmd.Flags().BoolVar(&rollbackBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
+	rollbackCmd.Flags().BoolVar(&rollbackBreakMigrationGate, "break-migration-gate", false, "revert an interrupted deploy past a closed migration gate (you assert schema compatibility)")
+	root.AddCommand(rollbackCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use:   "resume",
@@ -192,19 +208,6 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindResume}, "resume")
 		},
 	})
-
-	var abortBreakLock, abortBreakMigrationGate bool
-	abortCmd := &cobra.Command{
-		Use:   "abort",
-		Short: "revert an interrupted deploy to the previous release (migration-gated)",
-		Long:  "Revert an interrupted deploy to the release that was serving before it.\n\nGated on what the interrupted deploy already did: a migration whose effect\ncannot be reversed by re-activating a directory refuses, because reverting\nthe containers would leave them running against data they do not match.",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runMutation(cmd, g, onebox.ExecuteRequest{Kind: onebox.KindAbort, BreakLock: abortBreakLock, BreakMigrationGate: abortBreakMigrationGate}, "abort")
-		},
-	}
-	abortCmd.Flags().BoolVar(&abortBreakLock, "break-lock", false, "break a stale operation lock after inspecting its holder")
-	abortCmd.Flags().BoolVar(&abortBreakMigrationGate, "break-migration-gate", false, "abort past a closed migration gate (you assert schema compatibility)")
-	root.AddCommand(abortCmd)
 
 	root.AddCommand(&cobra.Command{
 		Use:   "status",

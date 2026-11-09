@@ -697,13 +697,13 @@ func TestExecuteRecoveryCorrelatesOperationWithJournalEvidence(t *testing.T) {
 	svc := newTestService(t, fake)
 	var events []OperationEvent
 	result, err := svc.Execute(context.Background(), ExecuteRequest{
-		Kind: KindAbort,
+		Kind: KindRollback,
 		Events: func(event OperationEvent) {
 			events = append(events, event)
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "abort refused") {
-		t.Fatalf("expected the safe abort refusal, got result=%#v err=%v", result, err)
+	if err == nil || !strings.Contains(err.Error(), "rollback refused") {
+		t.Fatalf("expected the safe rollback refusal, got result=%#v err=%v", result, err)
 	}
 	if result.ID == "" || result.ID == "R-INCOMPLETE" || result.EvidenceID != "R-INCOMPLETE" {
 		t.Fatalf("operation and journal identities were not separated: %#v", result)
@@ -821,7 +821,7 @@ func TestExecuteRequestRejectsIrrelevantAuthorityAndSafetyFields(t *testing.T) {
 		{name: "deploy plan on job", request: ExecuteRequest{Kind: KindJobRun, Plan: deployPlan}},
 		{name: "plan on unplanned operation", request: ExecuteRequest{Kind: KindRollback, Plan: deployPlan}},
 		{name: "mount authority on deploy", request: ExecuteRequest{Kind: KindDeploy, AllowDestructiveMounts: true}},
-		{name: "migration gate on rollback", request: ExecuteRequest{Kind: KindRollback, BreakMigrationGate: true}},
+		{name: "migration gate on resume", request: ExecuteRequest{Kind: KindResume, BreakMigrationGate: true}},
 		{name: "deploy controls on resume", request: ExecuteRequest{Kind: KindResume, NoRollback: true}},
 		{name: "destroy controls on bootstrap", request: ExecuteRequest{Kind: KindBootstrap, RemoveVolumes: true}},
 		{name: "approval on service apply", request: ExecuteRequest{Kind: KindServiceApply, Approval: &ApprovalGrant{}}},

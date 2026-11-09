@@ -82,7 +82,7 @@ var commandGroups = []struct {
 	commands  []string
 }{
 	{"start", "Get started:", []string{"init", "bootstrap", "deploy", "status"}},
-	{"recover", "Recover:", []string{"rollback", "resume", "abort"}},
+	{"recover", "Recover:", []string{"rollback", "resume"}},
 	{"operate", "Operate:", []string{"logs", "exec", "backup", "secrets", "job", "schedule", "service", "proxy", "destroy"}},
 	{"review", "Review and automation:", []string{"plan", "approve", "validate", "preview", "audit"}},
 	{"advanced", "Advanced:", []string{"canonical", "preflight", "doctor", "schema", "eject", "version"}},

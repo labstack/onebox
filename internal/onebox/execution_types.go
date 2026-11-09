@@ -353,8 +353,8 @@ func (request ExecuteRequest) Validate() error {
 	if request.Detach && request.Kind != KindJobRun {
 		return errors.New("detach is valid only for job run")
 	}
-	if request.BreakMigrationGate && request.Kind != KindAbort {
-		return errors.New("break_migration_gate is valid only for abort")
+	if request.BreakMigrationGate && request.Kind != KindRollback {
+		return errors.New("break_migration_gate is valid only for rollback")
 	}
 	if (request.NoRollback || request.Redeploy) && request.Kind != KindDeploy {
 		return errors.New("no_rollback and redeploy are valid only for deploy")

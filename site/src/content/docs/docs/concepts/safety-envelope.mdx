@@ -37,7 +37,7 @@ replaces.
 
 **Append-only journals.** Every operation records ordered steps with deterministic
 identities. The record of a failed operation survives the operation that replaced
-it, which is what lets `ob resume` and `ob abort` choose only paths the journal
+it, which is what lets `ob resume` and `ob rollback` choose only paths the journal
 can prove safe.
 
 **State-bound plans.** A plan binds the exact config, Compose, host state, images

@@ -76,7 +76,6 @@ const (
 // Cobra's native human output. Keeping this list closed makes adding a command
 // an explicit CLI-contract decision instead of silently inheriting behavior.
 var cliOutputMatrix = map[string]cliOutputClass{
-	"ob abort":           {Class: cliClassFiniteStream, JSON: true, NDJSON: true},
 	"ob approve":         {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob audit":           {Class: cliClassFiniteEnvelope, JSON: true},
 	"ob bootstrap":       {Class: cliClassFiniteStream, JSON: true, NDJSON: true},

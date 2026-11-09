@@ -30,7 +30,7 @@ func (s *Service) ResolveExecutionBinding(ctx context.Context, kind OperationKin
 // release images.
 func operationUsesInspectionRuntime(kind OperationKind) bool {
 	switch kind {
-	case KindResume, KindAbort, KindRollback, KindBootstrap, KindServiceApply,
+	case KindResume, KindRollback, KindBootstrap, KindServiceApply,
 		KindProxyApply, KindScheduleApply, KindScheduleRun,
 		KindSchedulePause, KindScheduleResume, KindSecretsPush, KindDestroy,
 		// Backup operates on a service's data, never on the application's

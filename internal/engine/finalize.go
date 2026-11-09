@@ -33,7 +33,7 @@ type FinalizeRefusedError struct {
 }
 
 func (err *FinalizeRefusedError) Error() string {
-	return fmt.Sprintf("release %s cannot be finalized: %s; inspect `ob status`, then `ob abort` if the release must be reverted", err.ReleaseID, err.Reason)
+	return fmt.Sprintf("release %s cannot be finalized: %s; inspect `ob status`, then `ob rollback` if the release must be reverted", err.ReleaseID, err.Reason)
 }
 
 func (err *FinalizeRefusedError) Code() string { return "finalize_refused" }

@@ -52,7 +52,7 @@ func TestEveryLifecycleRemedyNamesARealCommand(t *testing.T) {
 
 // A remedy that names a flag must name one the command has.
 //
-// The earlier check resolved only the command path, so renaming `ob abort
+// The earlier check resolved only the command path, so renaming `ob rollback
 // --force` to `--break-migration-gate` left four error strings telling an
 // operator to run a flag that no longer existed — two of them in HALT-AND-PAGE
 // guidance, read at the moment a migration has already run and the release is

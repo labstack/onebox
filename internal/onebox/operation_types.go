@@ -32,7 +32,6 @@ type OperationStatus string
 const (
 	KindDeploy         OperationKind = "deploy"
 	KindResume         OperationKind = "resume"
-	KindAbort          OperationKind = "abort"
 	KindRollback       OperationKind = "rollback"
 	KindBootstrap      OperationKind = "bootstrap"
 	KindServiceApply   OperationKind = "service_apply"
@@ -479,7 +478,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 
 func validOperationKind(kind OperationKind) bool {
 	switch kind {
-	case KindDeploy, KindResume, KindAbort, KindRollback, KindBootstrap, KindJobRun,
+	case KindDeploy, KindResume, KindRollback, KindBootstrap, KindJobRun,
 		KindServiceApply, KindProxyApply, KindScheduleApply, KindScheduleRun,
 		KindSchedulePause, KindScheduleResume, KindSecretsPush, KindDestroy,
 		KindServiceImagePatch, KindBackupEnable, KindBackupDisable,

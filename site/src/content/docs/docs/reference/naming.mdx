@@ -151,7 +151,7 @@ imperative verbs that change nothing.
 
 | Verbs: you tell it to act | Nouns: you ask it for a fact |
 | --- | --- |
-| `deploy` `rollback` `abort` `resume` `approve` `bootstrap` `destroy` `eject` `exec` `init` `plan` `preview` `validate` | `status` `logs` `audit` `doctor` `schema` `version` `preflight` `canonical` |
+| `deploy` `rollback` `resume` `approve` `bootstrap` `destroy` `eject` `exec` `init` `plan` `preview` `validate` | `status` `logs` `audit` `doctor` `schema` `version` `preflight` `canonical` |
 
 Groups that hold subcommands are nouns: `job`, `proxy`, `secrets`, and
 `service`. A group is singular when it names a subsystem
@@ -195,7 +195,7 @@ Overrides name the exact boundary they cross. `--break-lock` breaks only a stale
 operation or host lock after its holder is inspected.
 `--allow-destructive-mounts` permits only the mount detachments named by the
 service plan and cannot bypass an unsupported major version.
-`--break-migration-gate` applies only to abort recovery, while
+`--break-migration-gate` applies only to `ob rollback` of an interrupted deploy, while
 `--override-migration-backup` records the explicit reason for proceeding without
 the report policy required. There is no generic `--force` switch.
 

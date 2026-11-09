@@ -289,7 +289,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 				// leaving them to infer it from a missing path.
 				return fmt.Errorf("resume: release dir %s is not on the host and resume has no local staging to send. "+
 					"The transfer was interrupted before it completed, so this release cannot be resumed; "+
-					"run `ob abort` and deploy again", remoteDir)
+					"run `ob rollback` and deploy again", remoteDir)
 			}
 		} else {
 			if _, err := release.Push(ctx, e.T, localStagingDir, e.names(), releaseID); err != nil {
@@ -399,7 +399,7 @@ func (e *Engine) runPhases(ctx context.Context, jw *journal.Writer, releaseID, l
 		}
 		st(err)
 		if err != nil {
-			releaseErr := fmt.Errorf("release %s: %w (deploy halted — `ob resume` after fixing, or `ob abort`)", roleName, err)
+			releaseErr := fmt.Errorf("release %s: %w (deploy halted — `ob resume` after fixing, or `ob rollback`)", roleName, err)
 			if journalErr := jw.Append(ctx, journal.Record{Phase: "release", Role: roleName, Event: "result", Status: "fail", Detail: err.Error()}); journalErr != nil {
 				return errors.Join(releaseErr, fmt.Errorf("journal release %s result: %w", roleName, journalErr))
 			}

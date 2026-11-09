@@ -172,7 +172,7 @@ func TestClaimHostOwnerReportsAtomicWriteFailure(t *testing.T) {
 }
 
 // The structured envelope never renders Error(), so the refused command has to
-// reach the consumer through guidance. Handing an operator who ran `ob abort`
+// reach the consumer through guidance. Handing an operator who ran `ob rollback`
 // the command `ob resume` proposes the opposite action, and an agent that
 // executes resolving commands fixes forward instead of rolling back.
 func TestMigrationGateGuidanceMatchesTheRefusedCommand(t *testing.T) {
@@ -182,7 +182,7 @@ func TestMigrationGateGuidanceMatchesTheRefusedCommand(t *testing.T) {
 		// rollback-unknown data effects — the decision this gate exists to
 		// put in front of a human. A diagnostic is the most an abort refusal
 		// may publish.
-		"abort":    "ob audit --output json",
+		"rollback": "ob audit --output json",
 		"recovery": "ob resume --output ndjson",
 		"":         "ob resume --output ndjson",
 	} {

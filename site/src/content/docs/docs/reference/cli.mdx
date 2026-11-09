@@ -52,9 +52,8 @@ Get started:
   status      recorded versus actual state per workload and service
 
 Recover:
-  abort       revert an interrupted deploy to the previous release (migration-gated)
   resume      continue an interrupted deploy from the journal (fences the old runner)
-  rollback    re-release the previous release dir (pinned local image)
+  rollback    go back: revert an interrupted deploy, or re-release the previous release
 
 Operate:
   backup      protect a data service and inspect what can be recovered
@@ -93,30 +92,6 @@ Flags:
       --version         version for ob
 
 Use "ob [command] --help" for more information about a command.
-```
-
-## ob abort
-
-```
-Revert an interrupted deploy to the release that was serving before it.
-
-Gated on what the interrupted deploy already did: a migration whose effect
-cannot be reversed by re-activating a directory refuses, because reverting
-the containers would leave them running against data they do not match.
-
-Usage:
-  ob abort [flags]
-
-Flags:
-      --break-lock             break a stale operation lock after inspecting its holder
-      --break-migration-gate   abort past a closed migration gate (you assert schema compatibility)
-  -h, --help                   help for abort
-
-Global Flags:
-  -c, --config string   path to the project YAML file (default "ob.yml")
-  -e, --env string      environment name (default "production")
-      --output string   output mode for supported commands: human|json|ndjson (see the CLI reference) (default "human")
-  -v, --verbose         print every remote command
 ```
 
 ## ob approve
@@ -495,7 +470,7 @@ fences any older runner, journals every phase, drains connections before
 stopping a container, and can roll back. Without --plan it plans inline and
 asks for confirmation; with --plan it applies exactly what was reviewed.
 
-If it is interrupted, `ob resume` finishes it and `ob abort` reverts it.
+If it is interrupted, `ob resume` finishes it and `ob rollback` reverts it.
 
 Usage:
   ob deploy [flags]
@@ -954,20 +929,28 @@ Global Flags:
 ## ob rollback
 
 ```
-Re-activate the previous release from the directory still on the host.
+Return to the last release that was serving.
 
-Nothing is pulled and nothing is rebuilt: the previous release's images are
-already there, which is what makes this fast and available when a registry is
-not. Refused when there is no previous release, or when its snapshot is
-unavailable or unusable. Supporting services are not rolled back, so a
-migration a job already applied stays applied — moving the symlink does
-not undo it.
+If a deploy was interrupted, rollback reverts it to the release that was
+serving before it. That is gated on what the interrupted deploy already did:
+a migration whose effect cannot be reversed by re-activating a directory
+refuses, because the containers would run against data they do not match.
+
+Otherwise rollback re-activates the previous release from the directory still
+on the host. Nothing is pulled and nothing is rebuilt, which is what makes it
+fast and available when a registry is not. Refused when there is no previous
+release, or when its snapshot is unavailable or unusable. Supporting services
+are not rolled back, so a migration a job already applied stays applied.
+
+To finish an interrupted deploy instead of reverting it, use `ob resume`.
 
 Usage:
   ob rollback [flags]
 
 Flags:
-  -h, --help   help for rollback
+      --break-lock             break a stale operation lock after inspecting its holder
+      --break-migration-gate   revert an interrupted deploy past a closed migration gate (you assert schema compatibility)
+  -h, --help                   help for rollback
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

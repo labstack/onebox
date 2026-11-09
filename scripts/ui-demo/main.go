@@ -74,7 +74,7 @@ func roll(ctx context.Context, u *ui.UI, fail bool) (err error) {
 		}
 		if fail && replica == 2 {
 			u.Warnf("Existing replicas continue serving traffic")
-			return errors.New("replica 2 healthcheck failed; inspect the service, then use ob resume or ob abort")
+			return errors.New("replica 2 healthcheck failed; inspect the service, then use ob resume or ob rollback")
 		}
 		_, stopDrain := u.Busy("draining old replica")
 		err = wait(ctx, 600*time.Millisecond)

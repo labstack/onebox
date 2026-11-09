@@ -506,7 +506,6 @@ spec:
 
 func TestLeafOutputMatrixIsClosedAndHasNoAliases(t *testing.T) {
 	wantMatrix := map[string]cliOutputClass{
-		"ob abort":           {Class: "finite_stream", JSON: true, NDJSON: true},
 		"ob approve":         {Class: "finite_envelope", JSON: true},
 		"ob audit":           {Class: "finite_envelope", JSON: true},
 		"ob bootstrap":       {Class: "finite_stream", JSON: true, NDJSON: true},

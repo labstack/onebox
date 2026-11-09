@@ -104,14 +104,14 @@ func (e *Engine) resumeApplicationManifest(ctx context.Context, releaseID string
 // activated. It is typed so an agent can branch on activation_refused rather
 // than parse prose. State is carried for diagnosis, not because the remedy
 // varies: it is only constructed for states that cannot resume, and they all
-// need `ob abort`.
+// need `ob rollback`.
 type ActivationRefusedError struct {
 	ReleaseID string
 	State     release.State
 }
 
 func (err *ActivationRefusedError) Error() string {
-	return fmt.Sprintf("release %s cannot activate from manifest state %s; recover it with `ob abort`", err.ReleaseID, err.State)
+	return fmt.Sprintf("release %s cannot activate from manifest state %s; recover it with `ob rollback`", err.ReleaseID, err.State)
 }
 
 func (err *ActivationRefusedError) Code() string { return "activation_refused" }
@@ -120,7 +120,7 @@ func (err *ActivationRefusedError) Code() string { return "activation_refused" }
 // is included because activation writes that state before it switches the
 // symlink: a runner that dies in between leaves a verified manifest, and the
 // halt guidance tells the operator to fix forward and resume. Refusing verified
-// made that instruction impossible to follow — only `ob abort` could clear it.
+// made that instruction impossible to follow — only `ob rollback` could clear it.
 func activationResumable(state release.State) bool {
 	return state == release.StateStaged || state == release.StateVerified
 }

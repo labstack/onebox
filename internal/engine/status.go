@@ -248,7 +248,7 @@ func (e *Engine) Status(ctx context.Context) error {
 	if incFound {
 		diverged = true
 		fmt.Fprintln(e.Opts.Out)
-		e.warnf("INCOMPLETE deploy %s (started %s by %s) — `ob resume` or `ob abort`",
+		e.warnf("INCOMPLETE deploy %s (started %s by %s) — `ob resume` or `ob rollback`",
 			incS.DeployID, incS.StartedAt, incS.Operator)
 	}
 	if diverged {

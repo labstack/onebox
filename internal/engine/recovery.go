@@ -99,18 +99,18 @@ func (err *MigrationGateClosedError) Error() string {
 	if refused == "" {
 		refused = "recovery"
 	}
-	return fmt.Sprintf("%s refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob abort --break-migration-gate` if you know the data is compatible", refused, err.InterruptedID)
+	return fmt.Sprintf("%s refused — HALT-AND-PAGE: deploy %s ran a job or lifecycle hook with rollback-unknown data effects not covered by a safe result or migration_policy. Fix-forward + `ob resume`, or `ob rollback --break-migration-gate` if you know the data is compatible", refused, err.InterruptedID)
 }
 
 func (err *MigrationGateClosedError) Code() string { return "migration_gate_closed" }
 
 // GuidanceCommand overrides the registry default per refused command. The
 // structured envelope never renders Error(), so without this an operator who
-// ran `ob abort` is handed `ob resume` — the opposite action — and an agent
+// ran `ob rollback` is handed `ob resume` — the opposite action — and an agent
 // that executes resolving commands fixes forward instead of rolling back.
 func (err *MigrationGateClosedError) GuidanceCommand() string {
-	if err.Refused == "abort" {
-		// Deliberately NOT `ob abort --break-migration-gate`. That string
+	if err.Refused == "rollback" {
+		// Deliberately NOT `ob rollback --break-migration-gate`. That string
 		// classifies as a resolving command, which an agent may run — and
 		// running it rolls back a release with rollback-unknown data effects,
 		// which is the decision this gate exists to put in front of a human.

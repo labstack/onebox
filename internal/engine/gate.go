@@ -288,7 +288,7 @@ func (e *Engine) onVerifyFailure(ctx context.Context, jw *journal.Writer, releas
 	case prev == "":
 		return fmt.Errorf("verify: %w — first deploy, nothing to roll back to; release NOT activated", verr)
 	case !e.rollbackCovered:
-		return fmt.Errorf("verify: %w — HALT-AND-PAGE: a job or lifecycle hook has rollback-unknown data effects not covered by a safe result or migration_policy. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob abort --break-migration-gate`", verr)
+		return fmt.Errorf("verify: %w — HALT-AND-PAGE: a job or lifecycle hook has rollback-unknown data effects not covered by a safe result or migration_policy. The release is NOT activated. Investigate, then fix-forward + `ob resume`, or `ob rollback --break-migration-gate`", verr)
 	}
 	e.logf("verify failed — auto-rollback to %s (gate open: effects declared safe, changed=false, or expand-only migrations)", prev)
 	if err := e.recoverInterrupted(ctx, recoveryRequest{

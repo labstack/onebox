@@ -113,7 +113,7 @@ step to complete, not a line to run verbatim.
 
 | Code | Means | Guidance role | Command |
 | --- | --- | --- | --- |
-| `activation_refused` | the release cannot be activated from its recorded manifest state | resolving | `ob abort --output ndjson` |
+| `activation_refused` | the release cannot be activated from its recorded manifest state | resolving | `ob rollback --output ndjson` |
 | `approval_expired` | the local confirmation is older than its validity window | next | `ob approve --plan <path>` |
 | `approval_failed` | the approval artifact is missing, unreadable, or not bound to this plan | next | `ob approve --plan <path>` |
 | `artifact_write_failed` | a requested local artifact could not be written | — | — |

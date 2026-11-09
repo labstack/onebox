@@ -218,8 +218,8 @@ func typedGuidanceOverrides() map[string]string {
 		// ImageResolutionError's real command is pinned in package engine,
 		// where its constructor lives — a literal here would pass no matter
 		// what the constructor produces.
-		"engine.MigrationGateClosedError (abort)": (&engine.MigrationGateClosedError{
-			InterruptedID: "R1", Refused: "abort",
+		"engine.MigrationGateClosedError (rollback)": (&engine.MigrationGateClosedError{
+			InterruptedID: "R1", Refused: "rollback",
 		}).GuidanceCommand(),
 		"engine.MigrationGateClosedError (recovery)": (&engine.MigrationGateClosedError{
 			InterruptedID: "R1", Refused: "recovery",

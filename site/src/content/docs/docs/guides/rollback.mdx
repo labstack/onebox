@@ -1,23 +1,27 @@
 ---
 title: Roll back a release
-description: "Rollback, resume and abort: three different operations with three different guarantees."
-summary: When to use rollback, resume and abort, what each guarantees, and why a data effect can make a rollback refuse.
+description: "Rollback and resume: going back versus finishing, and what each guarantees."
+summary: When to use rollback or resume, what each guarantees, and why a data effect can make a rollback refuse.
 sidebar:
   order: 5
 read_when:
   - "A deploy failed or was interrupted"
-  - "Deciding between resume, abort and rollback"
+  - "Deciding between resume and rollback"
   - "Understanding why a rollback was refused"
 ---
 
-Rollback, resume and abort handle different situations; choosing the wrong one
-is the usual way an incident gets worse.
+There are two recovery commands: one goes forward, one goes back. Choosing the
+wrong one is the usual way an incident gets worse.
 
 | Situation | Command | What it does |
 | --- | --- | --- |
 | A deploy was interrupted and you want to finish it | `ob resume` | Continues from durable phase state |
-| A deploy was interrupted and you want it undone | `ob abort` | Reverts the interrupted deploy |
+| A deploy was interrupted and you want it undone | `ob rollback` | Reverts the interrupted deploy to the release serving before it |
 | A deploy completed but the release is bad | `ob rollback` | Activates the previous release |
+
+`ob rollback` decides which of the two it is from the journal: an interrupted
+deploy is reverted, otherwise the current release is replaced by its
+predecessor.
 
 Start by asking the server, not your memory:
 
@@ -44,7 +48,7 @@ Rollback reconciles each workload against the predecessor's immutable runtime
 revision. A healthy fleet already at that exact revision stays running, even if
 its `onebox.release` label names an older release; a missing, unhealthy, incomplete
 or different revision follows the predecessor's configured rolling or recreate
-strategy. Abort uses the same fail-closed rule.
+strategy. Reverting an interrupted deploy uses the same fail-closed rule.
 
 ## What rollback does not do
 
@@ -64,17 +68,17 @@ Concretely:
 - **A job whose result evidence is missing becomes `changed=unknown`** and halts
   before workload replacement.
 
-## Resume and abort work from durable state
+## Recovering an interrupted deploy works from durable state
 
-Both read the append-only journal, strict release manifests, and the durable
+`ob resume` and `ob rollback` both read the append-only journal, strict release manifests, and the durable
 activation checkpoint. Recovery removes only containers owned by the exact
 interrupted release, restores and verifies its predecessor, and clears the
 checkpoint last. A failed postcondition leaves the checkpoint retryable instead
 of hiding divergence.
 
 ```sh
-ob resume --output ndjson
-ob abort  --output ndjson
+ob resume   --output ndjson
+ob rollback --output ndjson
 ```
 
 Activation splits the two halves of a deploy. Interrupted before it, the release
@@ -107,12 +111,12 @@ is refused on its superseded manifest before any workload is touched.
 Two refusals have an override, and each grants exactly one thing.
 
 **`migration_gate_closed`**: the interrupted release ran a job or hook whose
-data effects are rollback-unknown, so `ob abort` will not roll the application
+data effects are rollback-unknown, so `ob rollback` will not roll the application
 back on its own. Fix forward and `ob resume`, or, if you know the old code reads
 the current data correctly, take responsibility explicitly:
 
 ```sh
-ob abort --break-migration-gate --output ndjson
+ob rollback --break-migration-gate --output ndjson
 ```
 
 **A stale operation lock**: a previous runner died holding it. Inspect the
@@ -120,10 +124,10 @@ holder in `ob status` first; the lock records who took it and when. If it is
 genuinely abandoned:
 
 ```sh
-ob abort --break-lock --output ndjson
+ob rollback --break-lock --output ndjson
 ```
 
-`--break-lock` is on six commands: `deploy`, `bootstrap`, `abort`, `job run`,
+`--break-lock` is on six commands: `deploy`, `bootstrap`, `rollback`, `job run`,
 `service apply` and `proxy apply`. Not every mutating command has it: `resume`,
 `destroy` and `secrets push` do not. It breaks the application and host locks
 only. The backup lock has no override and clears on TTL expiry or when the

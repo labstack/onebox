@@ -36,7 +36,7 @@ func (failure OperationFailure) GuidanceRole() string {
 var operationFailureDefinitions = map[string]OperationFailure{
 	"activation_refused": {
 		Message: "the release cannot be activated from its recorded manifest state",
-		Command: "ob abort --output ndjson",
+		Command: "ob rollback --output ndjson",
 	},
 	"approval_expired": {
 		Message: "the local confirmation is older than its validity window",
@@ -177,7 +177,7 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Command: "ob plan --backup-report-out <path>",
 	},
 	"migration_gate_closed": {
-		// Command-neutral: both `ob resume` and `ob abort` raise this code,
+		// Command-neutral: both `ob resume` and `ob rollback` raise this code,
 		// and a sentence naming recovery told an operator who asked to roll
 		// back that something else was refused. The command that was refused
 		// is in the error's own message; the guidance below is the default,

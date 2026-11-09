@@ -264,7 +264,7 @@ func TestRollbackRefusesSupersededManifestThatNeverProvedServing(t *testing.T) {
 // Activation writes the verified manifest before it switches the symlink, so a
 // runner that dies in between leaves a verified manifest. The halt guidance
 // tells the operator to fix forward and resume, which was impossible while
-// activation accepted only staged manifests: every retry refused and `ob abort`
+// activation accepted only staged manifests: every retry refused and `ob rollback`
 // was the sole way out.
 func TestActivateManifestResumesFromAVerifiedManifest(t *testing.T) {
 	target := happyFake()

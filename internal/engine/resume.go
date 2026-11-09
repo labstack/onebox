@@ -129,7 +129,7 @@ func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err 
 		// same code: abort and resume are the two commands an operator is
 		// choosing between, and reporting one as operation_failed and the
 		// other as migration_gate_closed makes the choice unreadable.
-		return &MigrationGateClosedError{InterruptedID: s.DeployID, Refused: "abort"}
+		return &MigrationGateClosedError{InterruptedID: s.DeployID, Refused: "rollback"}
 	}
 	epoch, err := e.AcquireLock(ctx, s.DeployID, e.Opts.ForceLock)
 	if err != nil {

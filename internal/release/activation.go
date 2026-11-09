@@ -152,10 +152,7 @@ func ActivationCheckpointWrite(n app.Names, checkpoint ActivationCheckpoint) (co
 		return "", "", err
 	}
 	path := ActivationCheckpointPath(n)
-	template := path + ".tmp.XXXXXX"
-	command = "set -eu; test -d " + q(PathsFor(n).Base) + "; umask 077; tmp=$(mktemp " + q(template) + "); " +
-		`trap 'rm -f "$tmp"' 0 1 2 15; cat > "$tmp"; chmod 600 "$tmp"; mv -f "$tmp" ` + q(path) + `; trap - 0 1 2 15`
-	return command, string(body), nil
+	return AtomicWriteCmd(PathsFor(n).Base, path, "cat"), string(body), nil
 }
 
 func ReadActivationCheckpoint(ctx context.Context, target transport.Transport, n app.Names) (ActivationCheckpoint, error) {

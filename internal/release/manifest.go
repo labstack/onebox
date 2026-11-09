@@ -335,10 +335,16 @@ func ManifestWrite(n app.Names, manifest Manifest) (command, input string, err e
 	}
 	dir := n.ReleaseDir(manifest.ID)
 	path := ManifestPath(n, manifest.ID)
-	template := path + ".tmp.XXXXXX"
-	command = "set -eu; test -d " + q(dir) + "; umask 077; tmp=$(mktemp " + q(template) + "); " +
-		`trap 'rm -f "$tmp"' 0 1 2 15; cat > "$tmp"; chmod 600 "$tmp"; mv -f "$tmp" ` + q(path) + `; trap - 0 1 2 15`
-	return command, string(body), nil
+	return AtomicWriteCmd(dir, path, "cat"), string(body), nil
+}
+
+// AtomicWriteCmd writes source's output beside path and renames it over path,
+// mode 0600. dir must already exist. A killed shell can leave a disposable
+// temp file, never a truncated record. source is a shell command, such as
+// `cat` for stdin.
+func AtomicWriteCmd(dir, path, source string) string {
+	return "set -eu; test -d " + q(dir) + "; umask 077; tmp=$(mktemp " + q(path+".tmp.XXXXXX") + "); " +
+		`trap 'rm -f "$tmp"' 0 1 2 15; ` + source + ` > "$tmp"; chmod 600 "$tmp"; mv -f "$tmp" ` + q(path) + `; trap - 0 1 2 15`
 }
 
 func WriteManifest(ctx context.Context, target transport.Transport, n app.Names, manifest Manifest) error {

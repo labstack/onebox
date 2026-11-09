@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/release"
 )
 
 // nextEpoch reads one durable fencing authority. Absence is the only state
@@ -56,7 +57,5 @@ func epochProbeCmd(epochPath string) string {
 // atomicEpochWriteCmd writes beside the epoch and renames over it. A killed
 // shell can leave a disposable temp file, never a truncated authority.
 func atomicEpochWriteCmd(epochPath string, epoch int) string {
-	template := epochPath + ".tmp.XXXXXX"
-	return "set -eu; test -d " + q(path.Dir(epochPath)) + "; umask 077; tmp=$(mktemp " + q(template) + "); " +
-		`trap 'rm -f "$tmp"' 0 1 2 15; printf '%s\n' ` + strconv.Itoa(epoch) + ` > "$tmp"; chmod 600 "$tmp"; mv -f "$tmp" ` + q(epochPath) + `; trap - 0 1 2 15`
+	return release.AtomicWriteCmd(path.Dir(epochPath), epochPath, `printf '%s\n' `+strconv.Itoa(epoch))
 }

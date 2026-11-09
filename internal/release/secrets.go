@@ -256,9 +256,7 @@ func SecretCheckpointWrite(names app.Names, checkpoint SecretCheckpoint) (comman
 		return "", "", err
 	}
 	path := SecretCheckpointPath(names)
-	command = "set -eu; test -d " + q(PathsFor(names).Base) + "; umask 077; tmp=$(mktemp " + q(path+".tmp.XXXXXX") + "); " +
-		`trap 'rm -f "$tmp"' 0 1 2 15; cat > "$tmp"; chmod 600 "$tmp"; mv -f "$tmp" ` + q(path) + `; trap - 0 1 2 15`
-	return command, string(body), nil
+	return AtomicWriteCmd(PathsFor(names).Base, path, "cat"), string(body), nil
 }
 
 func ReadSecretCheckpoint(ctx context.Context, target transport.Transport, names app.Names) (SecretCheckpoint, error) {

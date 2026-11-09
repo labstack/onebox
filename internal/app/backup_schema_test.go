@@ -64,40 +64,6 @@ func TestBackupIntentLoadsAndDefaultsToExactSchedules(t *testing.T) {
 	}
 }
 
-// minio was accepted with a backup policy and then refused at
-// `ob backup enable`, because postgres is the only driver whose contract runs.
-// The refusal belongs at the point the policy is written, so this is now the
-// same rejection every other unqualified driver gets.
-func TestMinIOBackupIntentIsRefusedUntilItsContractRuns(t *testing.T) {
-	project := `apiVersion: onebox.run/v1alpha2
-kind: Application
-metadata:
-  name: shop
-spec:
-  environments: {production: {server: deploy@app.example.net}}
-  workloads: {web: {image: 'nginx:1'}}
-  backupTargets:
-    offsite:
-      kind: S3Compatible
-      endpoint: https://objects.example.net
-      bucket: onebox-backups
-      failureDomain: {identity: provider-b/region-2, host: objects.example.net}
-      credentials: {file: secrets/backup.env, provider: Sops, accessKeyEntry: BACKUP_ACCESS, secretKeyEntry: BACKUP_SECRET}
-      encryption: {cold: ClientSide}
-  services:
-    minio:
-      version: RELEASE.2026-07-31T00-00-00Z
-      backup: {target: offsite, recoveryKind: Cold, maxDataLoss: 24h, allowDowntime: true}
-`
-	_, err := loadFixtureBytes([]byte(project), "ob.yml")
-	if err == nil {
-		t.Fatal("a minio backup policy was accepted, but no driver except postgres can establish one")
-	}
-	if !strings.Contains(err.Error(), "backup_driver_unsupported") {
-		t.Fatalf("refusal is not the unqualified-driver one: %v", err)
-	}
-}
-
 func TestReplicationIntentIsRejected(t *testing.T) {
 	project := strings.ReplaceAll(validBackupProject, "kind: S3Compatible", "kind: MinioReplication")
 	if _, err := loadFixtureBytes([]byte(project), "ob.yml"); err == nil {

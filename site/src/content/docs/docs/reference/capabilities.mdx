@@ -43,10 +43,9 @@ This page is the reconciliation. Three states:
   proposals, execution, structured events and operational memory. The CLI is an
   adapter over it. Observation is the engine's status snapshot, not a method on
   that service.
-- Eleven supporting-service drivers, each running with a durable volume, a
-  server-generated credential, and projected connection details. All but `nats`
-  also run a health check; that image has no shell to probe with, so
-  `condition: healthy` against it is refused at load.
+- Three supporting-service drivers (`postgres`, `redis`, `valkey`), each
+  running with a durable volume, a server-generated credential, a health check,
+  and projected connection details.
 - One application owner per host, recorded on the box at bootstrap and checked
   before every mutation, so a second application cannot converge over the first.
 - Typed release manifests, durable activation and secret-rotation checkpoints,

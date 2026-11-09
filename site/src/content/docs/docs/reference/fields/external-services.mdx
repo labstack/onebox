@@ -35,7 +35,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.connection.source` | object | — | Trusted encrypted file containing the connection values. |
 | `<name>.connection.source.file` | string | — | Repository-relative encrypted environment file staged through the trusted secret flow. Expects a path inside the repository, with no control character or shell metacharacter. |
 | `<name>.connection.source.provider` | `Sops` | `Sops` | Trusted secret provider. Only sops is currently executable. |
-| `<name>.driver` | `clickhouse` · `mariadb` · `meilisearch` · `minio` · `mongodb` · `mysql` · `nats` · `postgres` · `rabbitmq` · `redis` · `valkey` | — | Built-in connection shape used to validate and project this dependency. |
+| `<name>.driver` | `postgres` · `redis` · `valkey` | — | Built-in connection shape used to validate and project this dependency. |
 | `<name>.probe` | object | — | Optional bounded read-only health observation; it never creates or repairs provider resources. |
 | `<name>.probe.kind` | `DriverHealth` | `DriverHealth` | Read-only observation kind: driver-health. |
 | `<name>.probe.maxAge` | string | `5m` | Maximum age of a probe observation bound into a plan. Expects a duration such as 30s, 5m, 1h30m or 14d. |

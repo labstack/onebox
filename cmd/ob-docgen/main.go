@@ -299,7 +299,7 @@ var blocks = []block{
 			"Setting replicas, resources, volumes, published ports or drain behaviour",
 		}},
 	{Key: "services", Title: "services", Order: 20, Status: statusShipped,
-		Summary: "Supporting services Onebox runs for you: the eleven built-in drivers, their versions, settings and persistence.",
+		Summary: "Supporting services Onebox runs for you: the three built-in drivers, their versions, settings and persistence.",
 		ReadWhen: []string{
 			"Adding a database, cache or queue",
 			"Deciding between a managed service and a daemon workload",
@@ -857,17 +857,9 @@ func jsonString(s string) string {
 // --------------------------------------------------------------- drivers ---
 
 var serviceDriverTypicalUses = map[string]string{
-	"clickhouse":  "Analytical database",
-	"mariadb":     "Relational database",
-	"meilisearch": "Search",
-	"minio":       "S3-compatible object storage",
-	"mongodb":     "Document database",
-	"mysql":       "Relational database",
-	"nats":        "Messaging, JetStream",
-	"postgres":    "Relational database",
-	"rabbitmq":    "Message broker",
-	"redis":       "Cache, queue",
-	"valkey":      "Cache, queue",
+	"postgres": "Relational database",
+	"redis":    "Cache, queue",
+	"valkey":   "Cache, queue",
 }
 
 func renderDriverPage() string {
@@ -893,7 +885,9 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf, generatedMarker)
 	fmt.Fprintln(&buf)
 
-	fmt.Fprintln(&buf, "The driver set is **closed**. A declaration naming a driver outside it is refused")
+	fmt.Fprintln(&buf, "The driver set is **closed** and deliberately small: the data services Onebox")
+	fmt.Fprintln(&buf, "can operate well. Anything else (MySQL, MongoDB, a queue, object storage) runs as")
+	fmt.Fprintln(&buf, "a `daemon` workload you configure. A declaration naming a driver outside the set is refused")
 	fmt.Fprintln(&buf, "with `unknown_service_driver`, listing the drivers Onebox can run and directing")
 	fmt.Fprintln(&buf, "you to a `daemon` workload.")
 	fmt.Fprintln(&buf)
@@ -934,18 +928,6 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf, "with an empty username fails AUTH outright.")
 	fmt.Fprintln(&buf)
 
-	fmt.Fprintln(&buf, ":::caution[`nats` has no health check]")
-	fmt.Fprintln(&buf, "Its image carries no shell to run a probe in, so the driver declares none. A")
-	fmt.Fprintln(&buf, "`needs` on it resolves to `started` rather than `healthy`, and writing")
-	fmt.Fprintln(&buf, "`condition: healthy` against it is refused at load time rather than left to hang")
-	fmt.Fprintln(&buf, "on the target. Every other driver has one.")
-	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "Its server is also started without authentication. The `password` part is")
-	fmt.Fprintln(&buf, "written into the connection file like any other, but nothing on the nats side")
-	fmt.Fprintln(&buf, "checks it.")
-	fmt.Fprintln(&buf, ":::")
-	fmt.Fprintln(&buf)
-
 	fmt.Fprintln(&buf, "## What a declaration gets you")
 	fmt.Fprintln(&buf)
 	fmt.Fprintln(&buf, "```yaml")
@@ -953,7 +935,7 @@ func renderDriverPage() string {
 	fmt.Fprintln(&buf, "  postgres: 17")
 	fmt.Fprintln(&buf, "```")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "The image, a durable volume, a health check (every driver but `nats`), a")
+	fmt.Fprintln(&buf, "The image, a durable volume, a health check, a")
 	fmt.Fprintln(&buf, "credential generated on the target, and the connection details your application")
 	fmt.Fprintln(&buf, "reads.")
 	fmt.Fprintln(&buf)
@@ -982,17 +964,6 @@ func renderDriverPage() string {
 
 	fmt.Fprintln(&buf, "## Known limitations")
 	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, ":::caution[`mongodb` runs a standalone server, not a replica set]")
-	fmt.Fprintln(&buf, "Change streams and multi-document transactions need a replica set. An application")
-	fmt.Fprintln(&buf, "using either will connect, authenticate, and then fail. Rocket.Chat reports")
-	fmt.Fprintln(&buf, "`The $changeStream stage is only supported on replica sets`.")
-	fmt.Fprintln(&buf)
-	fmt.Fprintln(&buf, "Onebox does not configure a replica set, so an application that needs one wants a")
-	fmt.Fprintln(&buf, "`daemon` workload it owns. The failure appears in the application's logs,")
-	fmt.Fprintln(&buf, "not in Onebox output.")
-	fmt.Fprintln(&buf, ":::")
-	fmt.Fprintln(&buf)
-
 	fmt.Fprintln(&buf, ":::caution[Only `postgres` is backed up]")
 	fmt.Fprintln(&buf, "`postgres` is the one driver with an executable backup contract: declaring")
 	fmt.Fprintln(&buf, "`backup` on it gives a continuous off-host archive and point-in-time recovery.")

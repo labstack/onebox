@@ -1,9 +1,6 @@
 package app
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -172,21 +169,6 @@ spec:
 	}
 }
 
-// Accepting a setting the driver has no way to read would be worse than
-// refusing it: the author would believe it applied.
-func TestSettingsRefusedWhereTheyCannotBeApplied(t *testing.T) {
-	_, err := serviceSpec(t, "services: {store: {driver: mysql, version: 8, settings: {max_connections: 200}}}\n").
-		Resolve("production")
-	if err != nil {
-		t.Fatal(err)
-	}
-	r, _ := serviceSpec(t, "services: {store: {driver: mysql, version: 8, settings: {max_connections: 200}}}\n").
-		Resolve("production")
-	if _, err := r.RenderServices("production"); err == nil {
-		t.Fatal("a setting the driver cannot apply must be refused")
-	}
-}
-
 // Postgres reads settings as server arguments, not environment variables.
 func TestPostgresSettingsBecomeServerArguments(t *testing.T) {
 	doc := renderStore(t, "services: {store: {driver: postgres, version: 17, settings: {max_connections: 200}}}\n")
@@ -315,17 +297,10 @@ func TestAMappingToAMissingPartIsSkipped(t *testing.T) {
 	}
 }
 
-// A driver that has a database puts it in the URL, whatever its scheme.
-// ClickHouse speaks HTTP, and keying the database off the scheme handed
-// applications a connection string with no database selected — which fails
-// only once something queries it.
+// A driver that has a database puts it in the URL; one without does not invent one.
 func TestEveryDriverWithADatabasePutsItInTheURL(t *testing.T) {
 	for _, tt := range []struct{ driver, want string }{
 		{"postgres", "/shop"},
-		{"mysql", "/shop"},
-		{"mariadb", "/shop"},
-		{"mongodb", "/shop"},
-		{"clickhouse", "/shop"},
 	} {
 		spec := serviceSpec(t, "services: {store: {driver: "+tt.driver+", version: \"1\"}}\n")
 		client, ok := spec.ClientEnvFor("store")
@@ -334,51 +309,18 @@ func TestEveryDriverWithADatabasePutsItInTheURL(t *testing.T) {
 			continue
 		}
 		script := client.ClientEnvScript("/s.env", "/c.env", nil)
-		// The database is the last path segment, so it ends the URL or is
-		// followed by a query — mongodb needs authSource to authenticate at
-		// all, and pinning to the closing quote would forbid it.
-		if !strings.Contains(script, tt.want+"\"") && !strings.Contains(script, tt.want+"?") {
+		if !strings.Contains(script, tt.want+"\"") {
 			t.Errorf("%s: the URL selects no database:\n%s", tt.driver, script)
 		}
 	}
 	// And a driver with none does not invent one.
-	for _, driver := range []string{"redis", "valkey", "rabbitmq", "meilisearch", "nats"} {
+	for _, driver := range []string{"redis", "valkey"} {
 		spec := serviceSpec(t, "services: {store: {driver: "+driver+", version: \"1\"}}\n")
 		client, _ := spec.ClientEnvFor("store")
 		script := client.ClientEnvScript("/s.env", "/c.env", nil)
 		if strings.Contains(script, "/shop\"") || strings.Contains(script, "/shop?") {
 			t.Errorf("%s has no database and must not name one", driver)
 		}
-	}
-}
-
-// A driver with no credential variables still gets a credential file, because
-// the file is the service's Compose env_file. Asserted by running the script,
-// not by matching its spelling: any correct implementation must leave the file
-// present and mode 0600.
-func TestCredentialFileExistsEvenForADriverWithNoSecretVariables(t *testing.T) {
-	spec := serviceSpec(t, "services: {store: {driver: nats, version: 2}}\n")
-	client, ok := spec.ClientEnvFor("store")
-	if !ok {
-		t.Fatal("nats service is not declared")
-	}
-	if len(client.SecretVars) != 0 {
-		t.Fatalf("nats gained credential variables; this test no longer covers the zero-variable driver: %v", client.SecretVars)
-	}
-	dir := t.TempDir()
-	secretFile := filepath.Join(dir, "s.env")
-	script := client.ClientEnvScript(secretFile, filepath.Join(dir, "c.env"), nil)
-	// /bin/sh, deliberately: the emitted script must work under dash, where a
-	// redirection failure on a special builtin aborts before `||` can run.
-	if out, err := exec.CommandContext(t.Context(), "/bin/sh", "-c", script).CombinedOutput(); err != nil {
-		t.Fatalf("apply script failed: %v\n%s\n%s", err, out, script)
-	}
-	info, err := os.Stat(secretFile)
-	if err != nil {
-		t.Fatalf("credential file absent after a successful apply: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("credential file mode = %v, want 0600", info.Mode().Perm())
 	}
 }
 
@@ -474,13 +416,10 @@ func renderServices(t *testing.T, src string) map[string][]byte {
 // every write into it through a hardcoded --appendonly yes.
 func TestEphemeralServicesOwnNoDurableVolume(t *testing.T) {
 	for _, svc := range []string{
-		"postgres", "mysql", "mariadb", "mongodb", "clickhouse",
-		"redis", "valkey", "rabbitmq", "meilisearch", "nats",
+		"postgres", "redis", "valkey",
 	} {
 		version := map[string]string{
-			"postgres": "17", "mysql": "8.0", "mariadb": "11.4", "mongodb": "8.0",
-			"clickhouse": "25.3", "redis": "8-alpine", "valkey": "8-alpine",
-			"rabbitmq": "4", "meilisearch": "1.10", "nats": "2.10",
+			"postgres": "17", "redis": "8-alpine", "valkey": "8-alpine",
 		}[svc]
 		rendered := renderServices(t, `apiVersion: onebox.run/v1alpha2
 kind: Application

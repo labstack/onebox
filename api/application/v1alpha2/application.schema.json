@@ -711,15 +711,7 @@
               "driver": {
                 "description": "Built-in connection shape used to validate and project this dependency.",
                 "enum": [
-                  "clickhouse",
-                  "mariadb",
-                  "meilisearch",
-                  "minio",
-                  "mongodb",
-                  "mysql",
-                  "nats",
                   "postgres",
-                  "rabbitmq",
                   "redis",
                   "valkey"
                 ],

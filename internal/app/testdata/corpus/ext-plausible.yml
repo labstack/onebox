@@ -17,11 +17,11 @@ spec:
         BASE_URL: "http://stats.example.com"
         SECRET_KEY_BASE: "0123456789012345678901234567890123456789012345678901234567890123"
         TOTP_VAULT_KEY: "CHANGE-ME-openssl-rand-base64-32"
+        CLICKHOUSE_DATABASE_URL: "http://events:8123/plausible"
       needs:
         - name: postgres
           env: {DATABASE_URL: url}
         - name: events
-          env: {CLICKHOUSE_DATABASE_URL: url}
     migrate:
       role: Job
       image: ghcr.io/plausible/community-edition:v3.0.1
@@ -39,12 +39,18 @@ spec:
         BASE_URL: "http://stats.example.com"
         SECRET_KEY_BASE: "0123456789012345678901234567890123456789012345678901234567890123"
         TOTP_VAULT_KEY: "CHANGE-ME-openssl-rand-base64-32"
+        CLICKHOUSE_DATABASE_URL: "http://events:8123/plausible"
       needs:
         - name: postgres
           env: {DATABASE_URL: url}
         - name: events
-          env: {CLICKHOUSE_DATABASE_URL: url}
+    events:
+      role: Daemon
+      image: clickhouse/clickhouse-server:24.12-alpine
+      persistence: {mode: Durable}
+      volumes: [{name: data, path: /var/lib/clickhouse}]
+      health: {exec: ["clickhouse-client", "--query", "SELECT 1"], interval: 5s, startPeriod: 20s}
   deployment: {migrationPolicy: ExpandOnly}
   services:
     postgres: 16
-    events: {driver: clickhouse, version: "24.12"}
+

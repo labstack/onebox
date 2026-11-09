@@ -151,8 +151,9 @@ the full rules.
   protection begins only after `ob backup enable` establishes continuous
   archiving and takes the first base backup. Workload volumes and other service
   drivers do not have that contract today.
-- **MongoDB is standalone.** Applications requiring change streams or
-  multi-document transactions need a replica set, which Onebox does not manage.
+- **Three managed data services.** `postgres`, `redis` and `valkey` are run
+  for you; anything else (MySQL, MongoDB, a queue) is a `daemon` workload you
+  configure.
 
 [Shipped vs proposed](https://onebox.run/docs/reference/capabilities) is the complete
 account of what the binary executes today and what remains direction.

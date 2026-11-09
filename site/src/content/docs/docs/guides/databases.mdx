@@ -123,10 +123,10 @@ ob backup enable database
 The off-host backup repository is retained throughout this one-time image
 transition.
 
-Eleven drivers are supported: `postgres`, `mysql`, `mariadb`, `redis`, `valkey`,
-`mongodb`, `rabbitmq`, `minio`, `meilisearch`, `clickhouse`, `nats`. Anything
-else is refused with `unknown_service_driver`; see
-the [driver catalogue](/docs/reference/drivers).
+Three drivers are supported: `postgres`, `redis` and `valkey`. Anything else
+(MySQL, MongoDB, a queue, object storage) runs as a `daemon` workload; a
+`services` entry naming it is refused with `unknown_service_driver`. See the
+[driver catalogue](/docs/reference/drivers).
 
 ## Wire the connection
 
@@ -217,15 +217,10 @@ collision before release ordering can affect it.
 | Credential | Generated on the server, once | Yours to supply |
 | Release coupling | **Outlives every release** | Recreated on deploy |
 | Connection wiring | Automatic via `needs` | You wire it |
-| Available for | 11 drivers only | Anything containerised |
+| Available for | `postgres`, `redis`, `valkey` | Anything containerised |
 
 Use a daemon when you need something outside the driver set, or a topology the
 driver does not provide.
-
-:::caution[MongoDB runs standalone, not a replica set]
-See the [MongoDB driver limitations](/docs/reference/drivers#known-limitations)
-for applications that need a replica set.
-:::
 
 :::caution[Back it up]
 A `postgres` service can declare `backup` and Onebox will keep a continuous

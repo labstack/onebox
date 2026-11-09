@@ -33,7 +33,7 @@ func (e *Engine) acquireHostLock(ctx context.Context, force bool) error {
 		return err
 	}
 	lock := remoteLock[lockMeta]{
-		label: "host lock", path: hp.Lock, dir: hp.Base, attempts: 4, force: force,
+		label: "host lock", path: hp.Lock, dir: hp.Base, attempts: 4, force: force, ttl: ttl,
 		breakHint: "confirm no other runner is mutating host-scoped state, then retry with --break-lock",
 		next:      func(context.Context) (string, error) { return string(b), nil },
 		decide: func(holder lockHolder[lockMeta]) (lockVerdict, error) {

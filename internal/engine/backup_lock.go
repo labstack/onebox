@@ -91,7 +91,7 @@ func (e *Engine) AcquireBackupLock(ctx context.Context, service, operationID str
 	ttl := int(e.lockTTL().Seconds())
 	var epoch int
 	lock := remoteLock[backupLockMeta]{
-		label: "backup lock", path: e.backupLockPath(service), attempts: maxAttempts, freeReclaims: 4,
+		label: "backup lock", path: e.backupLockPath(service), attempts: maxAttempts, freeReclaims: 4, ttl: ttl,
 		breakHint: "confirm no backup or restore of " + service + " is running, then remove " + e.backupLockPath(service) + " by hand",
 		pause:     func() { e.Opts.Sleep(backupLockPollInterval) },
 		next: func(ctx context.Context) (string, error) {

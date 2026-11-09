@@ -3,17 +3,17 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"fmt"
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/transport"
-	"sync"
 )
 
 // remoteLockCase drives one of the three remote locks against a fake host.
@@ -105,12 +105,12 @@ func TestRemoteLocksReportCreateFailureAsInfrastructure(t *testing.T) {
 }
 
 // An empty lock (what a failed noclobber write by an older runner leaves), a
-// corrupt holder, or an unparsable age must be refused with an explanation —
-// never reclaimed, however old the file looks.
+// corrupt holder, or an unparsable age must be refused with an explanation
+// while it is within the lock's TTL — it may be a writer mid-write.
 func TestRemoteLocksRefuseUntrustworthyHolders(t *testing.T) {
 	for _, holder := range []struct{ name, raw, age, want string }{
-		{name: "empty", raw: "", age: "999999\n", want: "empty"},
-		{name: "corrupt", raw: `{"owner":`, age: "999999\n", want: "not valid JSON"},
+		{name: "empty", raw: "", age: "5\n", want: "empty"},
+		{name: "corrupt", raw: `{"owner":`, age: "5\n", want: "not valid JSON"},
 		{name: "unaged", raw: `{"owner":"x","deploy_id":"R1","operation_id":"backup-0"}`, age: "stat: weird\n", want: "not a number"},
 	} {
 		for _, tc := range remoteLockCases() {
@@ -126,6 +126,34 @@ func TestRemoteLocksRefuseUntrustworthyHolders(t *testing.T) {
 				}
 				if removed {
 					t.Fatal("untrustworthy holder was reclaimed")
+				}
+			})
+		}
+	}
+}
+
+// Past the TTL, an unreadable holder is abandoned: no heartbeat refreshes a
+// file whose content names no runner, so it is reclaimed like any expired
+// holder. An age that cannot be measured is never past the TTL.
+func TestRemoteLocksReclaimUnreadableHoldersPastTheirTTL(t *testing.T) {
+	for _, holder := range []struct {
+		name, raw, age string
+		reclaim        bool
+	}{
+		{name: "empty", raw: "", age: "999999\n", reclaim: true},
+		{name: "corrupt", raw: `{"owner":`, age: "999999\n", reclaim: true},
+		{name: "unaged corrupt", raw: `{"owner":`, age: "stat: weird\n", reclaim: false},
+	} {
+		for _, tc := range remoteLockCases() {
+			t.Run(holder.name+"/"+tc.name, func(t *testing.T) {
+				removed := false
+				f := heldLockFake(tc.path, holder.raw, holder.age, &removed)
+				err := tc.acquire(t, f, false)
+				if holder.reclaim && (err != nil || !removed) {
+					t.Fatalf("abandoned holder not reclaimed: removed=%v err=%v", removed, err)
+				}
+				if !holder.reclaim && (err == nil || removed) {
+					t.Fatalf("holder with no measurable age was reclaimed: removed=%v err=%v", removed, err)
 				}
 			})
 		}
@@ -149,10 +177,10 @@ func TestBreakLockRemovesUntrustworthyHolder(t *testing.T) {
 	}
 }
 
-// Over a real shell: an expired-looking empty backup lock — what a noclobber
-// create left on a full disk — is refused and left in place; once an operator
-// removes it, the lock is published with complete metadata.
-func TestRealShellBackupLockRefusesEmptyLeftover(t *testing.T) {
+// Over a real shell: an empty backup lock — what a noclobber create left on a
+// full disk — is refused while it is fresh, then reclaimed once it is past
+// the TTL, and the lock is published with complete metadata.
+func TestRealShellBackupLockAgesOutEmptyLeftover(t *testing.T) {
 	engine := New(
 		&app.Resolved{Spec: &app.Spec{Name: "example", BasePath: t.TempDir()}, Env: "production"},
 		nil, transport.NewLocal(),
@@ -166,19 +194,16 @@ func TestRealShellBackupLockRefusesEmptyLeftover(t *testing.T) {
 	if err := os.WriteFile(lock, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(lock, old, old); err != nil {
-		t.Fatal(err)
-	}
 	ctx := context.Background()
 	if _, err := engine.AcquireBackupLock(ctx, "database", "backup-1", 0); err == nil || !strings.Contains(err.Error(), "empty") {
-		t.Fatalf("empty leftover lock: err = %v, want an explanatory refusal", err)
+		t.Fatalf("fresh empty leftover lock: err = %v, want an explanatory refusal", err)
 	}
 	if info, err := os.Stat(lock); err != nil || info.Size() != 0 {
-		t.Fatalf("empty leftover lock was touched: %v %v", info, err)
+		t.Fatalf("fresh empty leftover lock was touched: %v %v", info, err)
 	}
 
-	if err := os.Remove(lock); err != nil {
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(lock, old, old); err != nil {
 		t.Fatal(err)
 	}
 	epoch, err := engine.AcquireBackupLock(ctx, "database", "backup-1", 0)

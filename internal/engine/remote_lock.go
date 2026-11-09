@@ -78,8 +78,14 @@ type lockHolder[H any] struct {
 // differ only in their metadata, what makes a holder reclaimable, and what
 // they do once they own the file.
 type remoteLock[H any] struct {
-	label    string // "deploy lock", used in messages
-	path     string
+	label string // "deploy lock", used in messages
+	path  string
+	// ttl, when positive, lets a holder whose content cannot be read be
+	// reclaimed once it is older than this many seconds. Nothing refreshes
+	// such a file on its owner's behalf — a heartbeat touches the lock only
+	// while its content or its fence still names the runner — so past the
+	// TTL it is abandoned, the same judgement made of a readable holder.
+	ttl      int
 	dir      string // created before each attempt when set
 	attempts int
 	// freeReclaims, when positive, lets reclaiming a stale holder not consume
@@ -147,7 +153,9 @@ func (l remoteLock[H]) acquire(ctx context.Context, e *Engine) (string, error) {
 		if !present {
 			continue // released between our create and our read
 		}
-		if invalid != nil {
+		if invalid != nil && l.ttl > 0 && holder.Age > l.ttl {
+			e.logf("%s: reclaiming a holder that cannot be read and is %ds past its TTL (%v)", l.label, holder.Age-l.ttl, invalid)
+		} else if invalid != nil {
 			if !l.force {
 				invalidSeen++
 				if invalidSeen <= invalidHolderRetries && attempt+1 < l.attempts {
@@ -195,8 +203,9 @@ func (l remoteLock[H]) acquire(ctx context.Context, e *Engine) (string, error) {
 
 // observe reads the holder. present is false only when the lock is gone. A
 // present holder whose bytes are empty or not metadata, or whose age is not a
-// number, is returned with invalid set: it must never be reclaimed on TTL or
-// identity grounds, because neither can be established.
+// number, is returned with invalid set: it is never reclaimed on identity
+// grounds, which cannot be established. Its age is still measured, so an
+// abandoned one can age out past the lock's TTL; an unmeasurable age is 0.
 func (l remoteLock[H]) observe(ctx context.Context, e *Engine) (holder lockHolder[H], present bool, invalid, err error) {
 	qpath := q(l.path)
 	res, err := e.T.Run(ctx, "if [ -e "+qpath+" ] || [ -L "+qpath+" ]; then cat "+qpath+" 2>/dev/null; exit 0; fi; exit "+strconv.Itoa(app.ProbeAbsent))
@@ -211,19 +220,22 @@ func (l remoteLock[H]) observe(ctx context.Context, e *Engine) (holder lockHolde
 		return holder, false, nil, fmt.Errorf("read %s holder failed (exit %d): %s", l.label, res.ExitCode, diagnostic(res))
 	}
 	holder.Raw = strings.TrimSpace(res.Stdout)
-	if holder.Raw == "" {
-		return holder, true, errors.New("the lock file is empty or unreadable (a write that failed after creating it, for example on a full disk, leaves it so)"), nil
-	}
-	if decodeErr := json.Unmarshal([]byte(holder.Raw), &holder.Meta); decodeErr != nil {
-		return holder, true, fmt.Errorf("holder metadata is not valid JSON (%v)", decodeErr), nil
-	}
 	ageRes, err := e.T.Run(ctx, lockAgeCmd(l.path))
 	if err != nil {
 		return holder, true, nil, err
 	}
 	rawAge := strings.TrimSpace(ageRes.Stdout)
 	if holder.Age, err = strconv.Atoi(rawAge); err != nil {
+		// Age 0 is what every unestablished age means elsewhere: fail closed,
+		// never past a TTL.
+		holder.Age = 0
 		return holder, true, fmt.Errorf("lock age %q is not a number (exit %d: %s)", rawAge, ageRes.ExitCode, diagnostic(ageRes)), nil
+	}
+	if holder.Raw == "" {
+		return holder, true, errors.New("the lock file is empty or unreadable (a write that failed after creating it, for example on a full disk, leaves it so)"), nil
+	}
+	if decodeErr := json.Unmarshal([]byte(holder.Raw), &holder.Meta); decodeErr != nil {
+		return holder, true, fmt.Errorf("holder metadata is not valid JSON (%v)", decodeErr), nil
 	}
 	return holder, true, nil, nil
 }

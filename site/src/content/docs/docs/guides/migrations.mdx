@@ -23,7 +23,7 @@ workloads:
     needs: [{name: postgres, condition: healthy}]
 ```
 
-`dataEffect` is **required** on a job, and it is what the rollback and abort
+`dataEffect` is **required** on a job, and it is what the rollback
 gates read:
 
 | Value | Meaning |

@@ -169,7 +169,7 @@ type Workload struct {
 	// Job only.
 	DeploymentPhase string              `json:"deployment_phase,omitempty" description:"Deployment phase for this job: none, pre_release, or post_release." default:"none"`
 	OperatorRun     string              `json:"operator_run,omitempty" description:"Whether an operator may invoke this job outside deployment: allowed or disabled. Defaults to allowed for phase none and disabled otherwise."`
-	DataEffect      DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by rollback and abort gates." example:"migration"`
+	DataEffect      DataEffect          `json:"data_effect,omitempty" description:"Job data impact used by the rollback gates." example:"migration"`
 	Schedule        *JobSchedule        `json:"schedule,omitempty" description:"Host-resident recurring schedule and run policy for a job, independent of its deployment phase and operator-run policy."`
 	Inputs          map[string]JobInput `json:"inputs,omitempty" description:"Declared parameters of a scheduled job, exposed as environment variables. Names are upper-case identifiers; each declares exactly one of enum or pattern and a default. A timer firing uses the defaults; ob job run may override them."`
 }

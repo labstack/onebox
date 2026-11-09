@@ -36,7 +36,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.build.target` | string | — | Named Dockerfile stage to build. |
 | `<name>.command` | list | — | Container command as a shell string or argument list. Also accepts a command line or argument list. |
 | `<name>.compose` | string | — | Existing Compose service to adopt, as repository path#service. Expects a reference of the form path/to/compose.yaml#service. |
-| `<name>.dataEffect` | `None` · `Migration` · `Destructive` · `Unknown` | — | Job data impact used by rollback and abort gates. |
+| `<name>.dataEffect` | `None` · `Migration` · `Destructive` · `Unknown` | — | Job data impact used by the rollback gates. |
 | `<name>.deploymentPhase` | `None` · `PreRelease` · `PostRelease` | `None` | Deployment phase for this job: none, pre_release, or post_release. |
 | `<name>.drain` | object | — | Signal and timing used to remove a container from traffic before stopping it. |
 | `<name>.drain.grace` | string | — | Maximum graceful-shutdown time before forced termination, at most 7d. Expects a duration such as 30s, 5m, 1h30m or 14d. |

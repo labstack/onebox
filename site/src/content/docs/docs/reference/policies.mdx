@@ -70,7 +70,7 @@ An operator job carrying one of those effects asks whether or not approval polic
 is enabled. Policy decides only whether a deploy that is not critical asks at
 all.
 
-With `policy.requireApproval: false`, a saved plan that is not critical applies
+With `environments.<name>.policy.requireApproval: false`, a saved plan that is not critical applies
 without a prompt, which is the unattended path:
 
 ```sh
@@ -87,6 +87,10 @@ or proof that the actor requesting the change was technically unable to create
 it. Independent authorization is not shipped.
 
 ## Approval policy fields
+
+Each environment carries its own policy, at `environments.<name>.policy`; the
+paths below are relative to `environments.<name>`. See the
+[environments reference](/docs/reference/fields/environments).
 
 | Field | Default | Effect |
 | --- | --- | --- |

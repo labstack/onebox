@@ -233,7 +233,7 @@ cron minutes into its default one-minute wake-up window.
 ## Jobs still declare a data effect
 
 `dataEffect` is required on every job, scheduled or not. A nightly report is
-`None`; a nightly prune is `Destructive`. The rollback and abort gates read it,
+`None`; a nightly prune is `Destructive`. The rollback gates read it,
 and a job that lies about it defeats them.
 
 ## Stopping a job without deleting it

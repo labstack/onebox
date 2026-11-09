@@ -1540,7 +1540,7 @@
                 "type": "string"
               },
               "dataEffect": {
-                "description": "Job data impact used by rollback and abort gates.",
+                "description": "Job data impact used by the rollback gates.",
                 "enum": [
                   "None",
                   "Migration",

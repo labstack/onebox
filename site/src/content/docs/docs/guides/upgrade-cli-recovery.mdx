@@ -1,0 +1,67 @@
+---
+title: Upgrade to one rollback command
+description: "`ob abort` is folded into `ob rollback`, and `ob deploy --yes` is removed. What changes for scripts and agents."
+summary: The CLI changes in this release, what each replaces, and what a script, CI job or agent driving `ob` has to change.
+sidebar:
+  order: 11
+read_when:
+  - "A script or agent calls `ob abort` or `ob deploy --yes`"
+  - "Upgrading CI that deploys unattended"
+  - "Reading the `rollback` field or the `deploy_in_progress` code in structured output"
+---
+
+This release changes the command line, not the project file: `ob.yml`, the
+host layout and recorded releases are unchanged, and nothing on a host needs
+preparing. Scripts, CI jobs and agents that call the commands below do.
+
+## `ob abort` is now `ob rollback`
+
+Recovery is two commands: `ob resume` goes forward, `ob rollback` goes back.
+
+| Before | Now |
+| --- | --- |
+| `ob abort` | `ob rollback` |
+| `ob abort --break-migration-gate` | `ob rollback --break-migration-gate` |
+| `ob abort --break-lock` | `ob rollback --break-lock` |
+| `ob rollback` (no interrupted deploy) | `ob rollback` — unchanged |
+
+`ob rollback` reads the journal first. If a deploy was interrupted, it reverts
+that deploy to the release that was serving before it, under the same
+migration gate `ob abort` applied. Otherwise it activates the previous release,
+as before. It goes back exactly one step: run it again to go further. If the
+journal cannot be read, it refuses rather than guess. See
+[Roll back a release](/docs/guides/rollback).
+
+Two refusals are new:
+
+- **`deploy_in_progress`**: the deploy to revert is still running. Its runner
+  is refreshing the deploy lock, so rollback waits instead of fencing it. Wait
+  for it to finish, or pass `--break-lock` only when you know its runner is
+  gone.
+- `--break-migration-gate` with no interrupted deploy is refused: there is no
+  gate for it to apply to.
+
+In structured output, the result's `rollback` field says which way it went:
+`interrupted_deploy` or `previous_release`. `release_id` names the release it
+went back to; it is empty when the interrupted deploy was the first one and
+there was nothing before it.
+
+Running `ob abort` prints a pointer to `ob rollback` and exits non-zero.
+
+## `ob deploy --yes` is removed
+
+Interactive `ob deploy` always shows the plan and asks. For an unattended
+deploy, save the plan and apply it:
+
+```sh
+ob plan
+ob deploy --plan ob-plan.json
+```
+
+With `policy.requireApproval: false`, a saved plan that is not critical
+applies without a prompt. With approval required (the default), add the
+confirmation step between them; see
+[Reviewing a plan before applying it](/docs/get-started/first-deploy#reviewing-a-plan-before-applying-it).
+
+Passing `--yes` or `-y` prints that path and exits non-zero, before anything is
+contacted.

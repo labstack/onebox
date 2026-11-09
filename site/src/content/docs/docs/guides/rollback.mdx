@@ -21,7 +21,7 @@ wrong one is the usual way an incident gets worse.
 
 `ob rollback` decides which of the two it is from the journal: an interrupted
 deploy is reverted, otherwise the current release is replaced by its
-predecessor.
+predecessor. If the journal cannot be read, it refuses rather than guess.
 
 Start by asking the server, not your memory:
 
@@ -102,9 +102,11 @@ interrupted one is no longer pending work, and resuming it would
 re-activate a release the host has already moved past. `ob status` stops
 reporting it; `ob audit` still shows the run.
 
-A manual `ob rollback` is journaled under the release it restores, so it does not
-settle an interrupted deploy that way. That deploy stays visible, and resuming it
-is refused on its superseded manifest before any workload is touched.
+`ob rollback` settles an interrupted deploy before anything else, and goes back
+exactly one step. If the deploy was interrupted after it activated, the release
+that was serving before it is restored. If it was interrupted before
+activation, the serving release never changed and stays serving; run
+`ob rollback` again to activate its predecessor.
 
 ## When recovery refuses
 

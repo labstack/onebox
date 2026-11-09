@@ -1085,3 +1085,52 @@ func TestAPlanBindsTheSameBytesGenerationProduces(t *testing.T) {
 		}
 	}
 }
+
+// With no interrupted deploy, rollback is the plain predecessor rollback, and
+// the migration-gate override has nothing to apply to: accepting it silently
+// would let an operator believe they had asserted something they had not.
+func TestRollbackWithoutAnInterruptedDeployRefusesTheMigrationGateOverride(t *testing.T) {
+	fake := serviceFake()
+	baseDynamic := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "for f in *.jsonl") {
+			return transport.Result{Stdout: "@@onebox-journal@@R-DONE.jsonl\n" +
+				`{"deploy_id":"R-DONE","phase":"deploy","event":"start","ts":"2026-07-12T19:00:00Z"}` + "\n" +
+				`{"deploy_id":"R-DONE","phase":"deploy","event":"finish","status":"ok","ts":"2026-07-12T19:01:00Z"}` + "\n"}, true
+		}
+		return baseDynamic(command)
+	}
+	svc := newTestService(t, fake)
+	_, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindRollback, BreakMigrationGate: true})
+	if err == nil || !strings.Contains(err.Error(), "applies only when rolling back an interrupted deploy") {
+		t.Fatalf("override without an interrupted deploy was not refused: %v", err)
+	}
+	for _, command := range fake.Commands {
+		if strings.Contains(command, `"phase":"abort"`) {
+			t.Fatalf("a finished deploy was treated as interrupted:\n%s", command)
+		}
+	}
+}
+
+// An unreadable journal is not "nothing interrupted": rolling back blind could
+// skip the interrupted deploy the operator needed reverted.
+func TestRollbackRefusesWhenTheJournalCannotBeRead(t *testing.T) {
+	fake := serviceFake()
+	baseDynamic := fake.Dynamic
+	fake.Dynamic = func(command string) (transport.Result, bool) {
+		if strings.Contains(command, "for f in *.jsonl") {
+			return transport.Result{ExitCode: 2, Stderr: "permission denied"}, true
+		}
+		return baseDynamic(command)
+	}
+	svc := newTestService(t, fake)
+	_, err := svc.Execute(context.Background(), ExecuteRequest{Kind: KindRollback})
+	if err == nil || !strings.Contains(err.Error(), "read deployment journals") {
+		t.Fatalf("rollback did not stop on the unreadable journal: %v", err)
+	}
+	for _, command := range fake.Commands {
+		if strings.Contains(command, "ln -sfn") || strings.Contains(command, "mv -T") {
+			t.Fatalf("rollback changed the current release without reading the journal:\n%s", command)
+		}
+	}
+}

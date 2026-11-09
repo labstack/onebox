@@ -79,12 +79,12 @@ it. Independent authorization is not shipped.
 
 | Field | Default | Effect |
 | --- | --- | --- |
-| `requireApproval` | `true` | A plan-bound local confirmation is required before mutating |
-| `allow_agent_proposals` | `true` | Recorded policy; the current CLI does not distinguish agent identity, and execution stays approval-gated regardless |
-| `require_migration_backup` | `false` | Plan-bound backup report before migration risk |
-| `migration_backup_maximum_age` | — | Maximum age of the accepted report |
-| `require_migration_restore_test` | `false` | Report must state that a restore test succeeded |
-| `migration_backup_key_material` | — | Key material whose usability the report must cover |
+| `policy.requireApproval` | `true` | A plan-bound local confirmation is required before mutating |
+| `policy.allowAgentProposals` | `true` | Recorded policy; the current CLI does not distinguish agent identity, and execution stays approval-gated regardless |
+| `policy.migrations.requireBackup` | `false` | Plan-bound backup report before migration risk |
+| `policy.migrations.backupMaxAge` | `24h` | Maximum age of the accepted report |
+| `policy.migrations.requireRestoreTest` | `false` | Report must state that a restore test succeeded |
+| `policy.migrations.backupKeyMaterial` | — | Key material whose usability the report must cover |
 
 ## Structured output contracts
 

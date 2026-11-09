@@ -99,25 +99,32 @@ It derives the application container, Traefik routing and TLS, release layout
 under `/var/lib/onebox/app`, and retention policy. `ob canonical` prints every
 derived value with its source: `# default`, `# shorthand`, or `# override`.
 
-### 3. Plan, approve, deploy
+### 3. Bootstrap, then deploy
 
 ```sh
-ob validate
-ob canonical
 ob bootstrap
-ob plan --out ob-plan.json
-ob approve --plan ob-plan.json --out ob-approval.json
+ob deploy
+```
+
+`ob bootstrap` prepares the host once. `ob deploy` reads the server, seals a
+plan, shows it, and asks you to confirm; a plan that touches data asks you to
+type its release ID back. The confirmation binds to that exact plan, so what
+you approved is what runs.
+
+To review a plan separately from applying it, or to deploy from CI, save the
+plan and the confirmation as files:
+
+```sh
+ob plan                 # writes ob-plan.json; read-only
+ob approve --plan ob-plan.json
 ob deploy --plan ob-plan.json --approval ob-approval.json
 ```
 
-`ob validate` and `ob canonical` are local. `ob bootstrap` is the first command
-that changes the server; `ob plan` is read-only. Its artifact is mode `0600` and
-expires after 15 minutes; drift or a changed local payload requires a new one.
-
-Approval is a short-lived, digest-bound local confirmation. It is
-tamper-evident ceremony, not authenticated identity or an independently issued
-capability. See [Your first deploy](https://onebox.run/docs/get-started/first-deploy) for
-the complete walkthrough and expected output.
+A saved plan is mode `0600` and expires after 15 minutes; drift or a changed
+local payload requires a new one. Approval is a short-lived, digest-bound local
+confirmation: tamper-evident ceremony, not authenticated identity. See
+[Your first deploy](https://onebox.run/docs/get-started/first-deploy) for the
+complete walkthrough and expected output.
 
 ## Refusing is part of the contract
 

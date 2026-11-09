@@ -45,35 +45,43 @@ Usage:
   ob [flags]
   ob [command]
 
-Available Commands:
-  abort       revert an interrupted deploy to the previous release (migration-gated)
-  approve     record a local human confirmation for one exact executable plan
-  audit       who deployed what, when, from which SHA — incl. failed runs
-  backup      protect a data service and inspect what can be recovered
+Get started:
   bootstrap   first contact: host setup, registry login, and supporting/data services
-  canonical   print the canonical form Onebox understood, with where each value came from
-  completion  Generate the autocompletion script for the specified shell
   deploy      show the plan, confirm, and release with health-gated zero downtime
-  destroy     tear the app down (typed confirmation; volumes kept unless --volumes)
-  doctor      check local runner provenance and deployment safety capabilities
-  eject       write the generated runtime into the repository and hand it over for good
-  exec        run a command inside a workload or service container
-  help        Help about any command
   init        scaffold ob.yml from the compose file + rollability doctor
-  job         plan and run a sealed one-shot operator job
-  logs        compose logs from the current release
-  plan        refresh → rendered diff + pinned images + command list → plan artifact
-  preflight   ask the server whether this project could be deployed (changes nothing)
-  preview     render the runtime the declarative contract generates (no target, no changes)
-  proxy       manage the host-scoped proxy (proxy.managed: true)
+  status      recorded versus actual state per workload and service
+
+Recover:
+  abort       revert an interrupted deploy to the previous release (migration-gated)
   resume      continue an interrupted deploy from the journal (fences the old runner)
   rollback    re-release the previous release dir (pinned local image)
+
+Operate:
+  backup      protect a data service and inspect what can be recovered
+  destroy     tear the app down (typed confirmation; volumes kept unless --volumes)
+  exec        run a command inside a workload or service container
+  job         plan and run a sealed one-shot operator job
+  logs        compose logs from the current release
+  proxy       manage the host-scoped proxy (proxy.managed: true)
   schedule    manage host timers for scheduled jobs
-  schema      print the JSON Schema for the project file, for editors
   secrets     SOPS-encrypted secrets
   service     manage supporting and data services
-  status      recorded versus actual state per workload and service
+
+Review and automation:
+  approve     record a local human confirmation for one exact executable plan
+  audit       who deployed what, when, from which SHA — incl. failed runs
+  plan        refresh → rendered diff + pinned images + command list → plan artifact
+  preview     render the runtime the declarative contract generates (no target, no changes)
   validate    validate schema, workloads, and rollability — no side effects
+
+Advanced:
+  canonical   print the canonical form Onebox understood, with where each value came from
+  completion  Generate the autocompletion script for the specified shell
+  doctor      check local runner provenance and deployment safety capabilities
+  eject       write the generated runtime into the repository and hand it over for good
+  help        Help about any command
+  preflight   ask the server whether this project could be deployed (changes nothing)
+  schema      print the JSON Schema for the project file, for editors
   version     print version and build provenance
 
 Flags:
@@ -502,7 +510,6 @@ Flags:
       --override-migration-backup string   audited break-glass reason for proceeding without a required backup report (requires --approval)
       --plan string                        apply a saved plan artifact (binds config + host state; local confirmation is separate)
       --redeploy                           deploy even when nothing changed (fresh roll of identical content)
-  -y, --yes                                skip the confirmation prompt
 
 Global Flags:
   -c, --config string   path to the project YAML file (default "ob.yml")

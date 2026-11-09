@@ -136,7 +136,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	root.AddCommand(approveCmd)
 
 	var planFile, approvalFile, backupReportFile, migrationBackupOverrideReason string
-	var deployYes, deployRedeploy, deployBreakLock bool
+	var deployRedeploy, deployBreakLock bool
 	deployCmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "show the plan, confirm, and release with health-gated zero downtime",
@@ -145,7 +145,7 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 			if err := resolveImages(); err != nil {
 				return err
 			}
-			return runDeploy(cmd, g, planFile, approvalFile, backupReportFile, migrationBackupOverrideReason, deployYes, deployRedeploy, deployBreakLock)
+			return runDeploy(cmd, g, planFile, approvalFile, backupReportFile, migrationBackupOverrideReason, deployRedeploy, deployBreakLock)
 		},
 	}
 	deployCmd.Flags().StringVar(&planFile, "plan", "", "apply a saved plan artifact (binds config + host state; local confirmation is separate)")
@@ -153,7 +153,6 @@ func addCommands(root *cobra.Command, g *globalFlags) {
 	deployCmd.Flags().StringVar(&backupReportFile, "backup-report", "", "apply the backup report bound into the local confirmation")
 	deployCmd.Flags().StringVar(&migrationBackupOverrideReason, "override-migration-backup", "", "audited break-glass reason for proceeding without a required backup report (requires --approval)")
 	deployCmd.Flags().StringArrayVar(&imageArgs, "image", nil, "resolved image as workload=reference, for build-sourced workloads (repeatable)")
-	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "skip the confirmation prompt")
 	deployCmd.Flags().BoolVar(&deployRedeploy, "redeploy", false, "deploy even when nothing changed (fresh roll of identical content)")
 	deployCmd.Flags().BoolVar(&g.NoRollback, "no-rollback", false, "verify failures halt; never auto-rollback")
 	deployCmd.Flags().BoolVar(&deployBreakLock, "break-lock", false, "break a stale deploy lock after inspecting its holder")
@@ -699,7 +698,7 @@ func connect(cmd *cobra.Command, g *globalFlags, cfg *app.Resolved, p *ctypes.Pr
 	return e, func() { _ = t.Close() }, nil
 }
 
-func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backupReportFile, migrationBackupOverrideReason string, yes, redeploy, breakLock bool) error {
+func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backupReportFile, migrationBackupOverrideReason string, redeploy, breakLock bool) error {
 	if backupReportFile != "" && migrationBackupOverrideReason != "" {
 		return writeEarlyOperationFailure(cmd, g, fmt.Errorf("--backup-report and --override-migration-backup are mutually exclusive"))
 	}
@@ -735,7 +734,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 				planFile,
 			))
 		}
-		if approval == nil && needsMutation && plan.Operation.Approval != onebox.ApprovalNone && !yes {
+		if approval == nil && needsMutation && plan.Operation.Approval != onebox.ApprovalNone {
 			renderApprovalSummary(cmd, plan)
 			if !confirmPlanApproval(cmd, plan) {
 				fmt.Fprintln(cmd.OutOrStdout(), "not approved")
@@ -776,7 +775,7 @@ func runDeploy(cmd *cobra.Command, g *globalFlags, planFile, approvalFile, backu
 	if err != nil {
 		return err
 	}
-	if !plannedNoOp && approval == nil && !yes {
+	if !plannedNoOp && approval == nil {
 		if !confirmInteractiveDeploy(cmd, &pl.plan) {
 			fmt.Fprintln(cmd.OutOrStdout(), "not applied")
 			return writeCancelled(cmd, g, "deploy cancelled")

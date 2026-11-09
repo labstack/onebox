@@ -1,7 +1,7 @@
 ---
 title: Your first deploy
 description: From an existing Compose file to a released application, in one pass.
-summary: The full path (scaffold ob.yml, inspect what Onebox understood, plan, approve, deploy) with the plan and local-confirmation artifacts explained.
+summary: The short path (scaffold ob.yml, validate, bootstrap, deploy with an inline plan and confirmation), then how to split plan and approval for review and CI.
 sidebar:
   order: 3
 read_when:
@@ -23,7 +23,7 @@ You need:
 
 If the server has no public SSH port, name the bastion it is reached through; see [Deploy through a jump host](/docs/guides/jump-host).
 
-The first three steps are local; later steps state when they contact or change
+The first two steps are local; later steps state when they contact or change
 the server.
 
 ## Deploy once
@@ -60,48 +60,32 @@ the server.
      code: unknown_field
    ```
 
-3. **Read back what Onebox understood.**
-
-   ```sh
-   ob canonical
-   ob preview
-   ```
-
-   `ob canonical` marks each value with where it came from: `# default` for one
-   Onebox chose, `# shorthand` for a top-level key it moved into a workload,
-   `# override` for one an environment supplied. `ob preview` prints the Compose
-   runtime it will generate. Read both before the first deploy; see
+   To read back what Onebox understood, `ob canonical` marks each value with
+   where it came from (`# default`, `# shorthand`, `# override`) and
+   `ob preview` prints the Compose runtime it will generate; see
    [origin annotations](/docs/get-started/reading-it-back#ob-canonical-is-the-one-to-read-in-review).
 
-4. **Prepare the host.** This contacts and changes the server.
+3. **Prepare the host.** This contacts and changes the server. Run it once.
 
    ```sh
    ob bootstrap
    ```
 
-5. **Check host readiness.** This contacts the provisioned server but changes nothing and contacts no registry.
+4. **Deploy.**
 
    ```sh
-   ob preflight
+   ob deploy
    ```
 
-   Among the host, ownership, path, and collision checks, preflight verifies
-   that Docker Buildx can format image-manifest digests. The capability probe
-   reads local help output only, so it does not resolve an image or consume
-   registry quota.
+   Onebox reads the server, runs the readiness checks `ob preflight` would,
+   and seals a plan: the typed operation graph and the exact config, Compose,
+   host-state, image, rendered-Compose and payload bindings. It shows that plan
+   and asks you to confirm. A plan that touches data (a migration, a
+   destructive job, or an unknown data effect) asks for its release ID to be
+   typed back instead of yes or no. Your answer is bound to that exact plan, so
+   the plan you read is the one that runs.
 
-6. **Review production without changing it.**
-
-   ```sh
-   ob plan --out ob-plan.json
-   ```
-
-   The plan is a mode-`0600`, digest-protected executable envelope containing the
-   typed operation graph and the exact config, Compose, host-state, image,
-   rendered-Compose and payload bindings. **It expires after 15 minutes**, and
-   any drift or local payload change requires a new plan.
-
-   Each long-running workload has its own action in that graph:
+   Each long-running workload has its own action in the plan:
 
    - `retain` leaves every healthy replica running when its complete effective
      runtime is unchanged;
@@ -111,26 +95,9 @@ the server.
      such as a release-staged env file, secret, bind-mounted payload, adopted
      Compose service, missing legacy revision, replica drift or unhealthy state.
 
-   Retention is automatic and adds no configuration or selection flag. A
-   retained workload receives no pull, signal, stop, rename or Compose command.
-   `ob deploy --redeploy` remains the explicit exception: on a whole-application
-   no-op it performs the fresh roll shown in the sealed plan.
-
-7. **Record a short-lived local confirmation for that exact plan.**
-
-   ```sh
-   ob approve --plan ob-plan.json --out ob-approval.json
-   ```
-
-   The confirmation is mode-`0600` and digest-bound to the plan, server, inputs,
-   risk, operator label, and expiry. A changed or expired plan needs a new
-   confirmation. It is tamper-evident local ceremony, not authenticated identity.
-
-8. **Deploy with both artifacts.**
-
-   ```sh
-   ob deploy --plan ob-plan.json --approval ob-approval.json
-   ```
+   A retained workload receives no pull, signal, stop, rename or Compose
+   command. `ob deploy --redeploy` is the explicit exception: on a
+   whole-application no-op it performs a fresh roll.
 
    Completed steps stay in the terminal with their durations. This condensed
    example shows a successful deploy, ending with its release and predecessor:
@@ -144,7 +111,7 @@ the server.
    ✓ deployed r-0042 in 6.8s (prev r-0041 — `ob rollback`)
    ```
 
-   Read the observed state back once more:
+5. **Read the observed state back.**
 
    ```sh
    ob status
@@ -200,30 +167,41 @@ host proxy is `onebox-proxy`. Persistent and provider resources include
 the host proxy network. Once a volume exists, its name cannot change without
 moving data.
 
-## Why plan and local confirmation are separate
+## Reviewing a plan before applying it
 
-The split creates a review ceremony and binds the answer to one exact
-sealed plan. `ob approve` records a short-lived local confirmation whose digest
-detects modification; it is not authenticated identity or proof that the actor
-requesting the change was technically unable to create it. Environments that
-need independent authorization require a future external provider, not a local
-checksum artifact.
+`ob deploy` plans and confirms in one step. When someone else reviews the
+change, or a pipeline applies it, split the steps and keep the artifacts:
+
+```sh
+ob plan                          # read-only; writes ob-plan.json
+ob approve --plan ob-plan.json   # writes ob-approval.json
+ob deploy --plan ob-plan.json --approval ob-approval.json
+```
+
+The plan is a mode-`0600`, digest-protected executable envelope. **It expires
+after 15 minutes**, and any drift or local payload change requires a new plan.
+The confirmation is mode-`0600` and digest-bound to the plan, server, inputs,
+risk, operator label, and expiry. It is tamper-evident local ceremony, not
+authenticated identity or proof that the actor requesting the change was
+technically unable to create it. Environments that need independent
+authorization require a future external provider, not a local checksum
+artifact.
 
 For automation, plan and deploy accept structured output, and `ob approve` sits
 between them:
 
 ```sh
-ob plan --output json --out ob-plan.json
-echo y | ob approve --plan ob-plan.json --out ob-approval.json
+ob plan --output json
+echo y | ob approve --plan ob-plan.json
 ob deploy --output ndjson --plan ob-plan.json --approval ob-approval.json
 ```
 
 `ob approve` always prompts and there is no flag to skip it. A routine plan asks
-yes or no; one that touches data (a migration, a destructive job, or an
-unknown data effect) asks for the plan's identity to be typed back: the release
-ID for a deploy, the job name for a job run. It reads the answer from stdin
-without checking for a terminal, so a pipeline supplies `y`, or that identity
-for the stronger ceremony. Anything else records nothing and exits cancelled.
+yes or no; one that touches data asks for the plan's identity to be typed back:
+the release ID for a deploy, the job name for a job run. It reads the answer
+from stdin without checking for a terminal, so a pipeline supplies `y`, or that
+identity for the stronger ceremony. Anything else records nothing and exits
+cancelled.
 
 A JSON deploy buffers ordered operation events and its result into one envelope.
 NDJSON streams event records and a terminal result or error record. Diagnostics

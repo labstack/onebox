@@ -1272,15 +1272,36 @@ func help(ctx context.Context, bin string, args ...string) (string, error) {
 // difference is "this is a leaf command" versus "cobra's template changed and
 // the entire reference is about to be published empty". Blank lines do not end
 // the scan, because command groups are separated by them.
+// nonCommandSections are the unindented headers cobra prints that never list
+// commands. Every other unindented "Title:" line is a command group: the root
+// command titles its groups by purpose ("Get started:"), not "Commands:".
+var nonCommandSections = map[string]bool{
+	"Usage:": true, "Aliases:": true, "Examples:": true, "Flags:": true,
+	"Global Flags:": true, "Additional help topics:": true,
+}
+
+func isCommandSectionHeader(line string) bool {
+	if line == "" || strings.HasPrefix(line, " ") || !strings.HasSuffix(line, ":") {
+		return false
+	}
+	return !nonCommandSections[line]
+}
+
 func subcommands(helpText string) ([]string, error) {
 	var out []string
 	seen := map[string]bool{}
 	sawSection := false
 	inSection := false
+	// The long description precedes "Usage:" and may contain its own
+	// "Title:" lines, so section headers only count after it.
+	pastUsage := !strings.Contains(helpText, "Usage:")
 
 	for _, line := range strings.Split(helpText, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasSuffix(trimmed, "Commands:") {
+		if line == "Usage:" {
+			pastUsage = true
+		}
+		if pastUsage && isCommandSectionHeader(line) {
 			sawSection, inSection = true, true
 			continue
 		}

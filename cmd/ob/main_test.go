@@ -166,3 +166,14 @@ func TestTestHostStateOverrideIsNeverSilent(t *testing.T) {
 		t.Fatalf("relative override warning = %q", out.String())
 	}
 }
+
+// Every top-level command must land in a help group; an ungrouped command
+// falls into Cobra's "Additional Commands" bucket and breaks the ordering
+// newcomers rely on.
+func TestEveryTopLevelCommandHasAHelpGroup(t *testing.T) {
+	for _, c := range newRootCmd().Commands() {
+		if c.GroupID == "" && c.Name() != "help" && c.Name() != "completion" {
+			t.Errorf("command %q has no help group; add it to commandGroups", c.Name())
+		}
+	}
+}

@@ -70,7 +70,39 @@ func newRootCmd() *cobra.Command {
 	addPreflightCommand(root, g)
 	addEjectCommand(root, g)
 	addConfigCommand(root, g)
+	groupCommands(root)
 	return root
+}
+
+// commandGroups orders top-level help by what a newcomer needs first. The
+// everyday path is init → bootstrap → deploy; everything else is grouped so
+// it stays discoverable without competing with that path.
+var commandGroups = []struct {
+	id, title string
+	commands  []string
+}{
+	{"start", "Get started:", []string{"init", "bootstrap", "deploy", "status"}},
+	{"recover", "Recover:", []string{"rollback", "resume", "abort"}},
+	{"operate", "Operate:", []string{"logs", "exec", "backup", "secrets", "job", "schedule", "service", "proxy", "destroy"}},
+	{"review", "Review and automation:", []string{"plan", "approve", "validate", "preview", "audit"}},
+	{"advanced", "Advanced:", []string{"canonical", "preflight", "doctor", "schema", "eject", "version"}},
+}
+
+func groupCommands(root *cobra.Command) {
+	byName := map[string]*cobra.Command{}
+	for _, c := range root.Commands() {
+		byName[c.Name()] = c
+	}
+	for _, group := range commandGroups {
+		root.AddGroup(&cobra.Group{ID: group.id, Title: group.title})
+		for _, name := range group.commands {
+			if c, ok := byName[name]; ok {
+				c.GroupID = group.id
+			}
+		}
+	}
+	root.SetHelpCommandGroupID("advanced")
+	root.SetCompletionCommandGroupID("advanced")
 }
 
 // resolveDefaultConfigPath keeps ob.yml canonical while allowing the other

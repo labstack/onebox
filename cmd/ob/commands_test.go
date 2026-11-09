@@ -124,7 +124,7 @@ spec:
 	if err := os.WriteFile(filepath.Join(dir, "secrets.env"), []byte("PRESENT=1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := run(t, dir, "deploy", "-y")
+	out, err := run(t, dir, "deploy")
 	if err == nil {
 		t.Fatalf("preflight should have blocked the deploy: %s", out)
 	}

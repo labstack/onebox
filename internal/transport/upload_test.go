@@ -21,6 +21,9 @@ func TestUploadFailsWhenTheDestinationCannotBeWritten(t *testing.T) {
 	source := t.TempDir()
 	writeFile(t, filepath.Join(source, "compose.yaml"), "services: {}\n")
 
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions, so the copy cannot be made to fail this way")
+	}
 	parent := t.TempDir()
 	if err := os.Chmod(parent, 0o500); err != nil {
 		t.Fatal(err)

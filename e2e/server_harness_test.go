@@ -439,7 +439,7 @@ func (s *server) deploy(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("ob approve failed: %v\n%s", err, out)
 	}
-	s.mustOb(t, dir, "deploy", "--plan", plan, "--approval", approval, "-y")
+	s.mustOb(t, dir, "deploy", "--plan", plan, "--approval", approval)
 }
 
 // releaseIDRe pulls the release the plan is bound to out of the artifact. The

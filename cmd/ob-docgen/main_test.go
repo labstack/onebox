@@ -438,7 +438,7 @@ Core Commands:
   deploy      release
   plan        propose
 
-Recovery Commands:
+Recover:
   abort       revert
   resume      finish
 

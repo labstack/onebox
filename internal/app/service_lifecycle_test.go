@@ -6,7 +6,7 @@ func TestEveryRuntimeDriverHasALifecycleRecord(t *testing.T) {
 	if err := validateLifecycleCatalogue(); err != nil {
 		t.Fatalf("validate lifecycle catalogue: %v", err)
 	}
-	if got, want := len(lifecycleCapabilities), 3; got != want {
+	if got, want := len(lifecycleCapabilities), 11; got != want {
 		t.Fatalf("lifecycle capability count = %d, want %d", got, want)
 	}
 	for driverName := range drivers {

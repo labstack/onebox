@@ -67,6 +67,11 @@ type driver struct {
 	// user is the identity the service is created with; the database is named
 	// after the application, an identity Onebox derives rather than asks for.
 	user string
+	// urlQuery is appended to the connection string. Some drivers need a
+	// parameter to be usable at all: a Mongo root user created through
+	// MONGO_INITDB_ROOT_USERNAME lives in the `admin` database, so a URL that
+	// selects the application database authenticates against the wrong one.
+	urlQuery string
 	// majorUpgradeInPlace is whether the driver can read a data directory
 	// written by a previous major version. A database that cannot needs a dump
 	// and restore, which Onebox does not perform — so it refuses the change
@@ -97,13 +102,15 @@ type driver struct {
 type settingsForm int
 
 const (
-	// The zero value is no mechanism at all, so a driver that forgets to
-	// declare one refuses settings instead of silently ignoring them.
-	settingsUnsupported settingsForm = iota
+	// settingsEnv passes each setting as an uppercased environment variable.
+	settingsEnv settingsForm = iota
 	// settingsPostgres passes `-c key=value` server arguments.
 	settingsPostgres
 	// settingsRedisFlag passes `--key value` server arguments.
 	settingsRedisFlag
+	// settingsUnsupported refuses settings for drivers with no safe mechanism,
+	// rather than accepting values it would then ignore.
+	settingsUnsupported
 )
 
 // serviceIsEphemeral reports a service the author declared disposable.
@@ -129,6 +136,20 @@ var drivers = map[string]driver{
 		env:       map[string]string{"PGDATA": "/var/lib/postgresql/data/pgdata"},
 		secretEnv: []string{"POSTGRES_PASSWORD"},
 		urlUser:   "onebox", scheme: "postgres", user: "onebox", settings: settingsPostgres,
+	},
+	"mysql": {
+		database: true,
+		image:    "mysql", port: 3306, dataPath: "/var/lib/mysql",
+		health:    []string{"CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"},
+		secretEnv: []string{"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"},
+		urlUser:   "onebox", scheme: "mysql", user: "onebox", settings: settingsUnsupported,
+	},
+	"mariadb": {
+		database: true,
+		image:    "mariadb", port: 3306, dataPath: "/var/lib/mysql",
+		health:    []string{"CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"},
+		secretEnv: []string{"MARIADB_PASSWORD", "MARIADB_ROOT_PASSWORD"},
+		urlUser:   "onebox", scheme: "mysql", user: "onebox", settings: settingsUnsupported,
 	},
 	"redis": {
 		majorUpgradeInPlace: true,
@@ -165,6 +186,64 @@ var drivers = map[string]driver{
 			"durable":   {"appendonly": "yes"},
 			"ephemeral": {"appendonly": "no", "save": ""},
 		},
+	},
+	"mongodb": {
+		database: true,
+		image:    "mongo", port: 27017, dataPath: "/data/db",
+		health:    []string{"CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok' | grep -q 1"},
+		secretEnv: []string{"MONGO_INITDB_ROOT_PASSWORD"},
+		urlUser:   "onebox", scheme: "mongodb", user: "onebox", settings: settingsUnsupported,
+		// The root user is created in `admin`; without this the client tries
+		// to authenticate against the application database and is refused.
+		urlQuery: "authSource=admin",
+		// This is a standalone server. Change streams and multi-document
+		// transactions require a replica set, so an application using either
+		// connects, authenticates, and then fails in its own logs — Rocket.Chat
+		// with "The $changeStream stage is only supported on replica sets".
+		// Configuring one needs a keyfile for internal auth, a one-time
+		// rs.initiate, a health check that waits for PRIMARY rather than for a
+		// ping, and replicaSet= on every connection string. That is a
+		// service-initialisation step this driver model does not have, so the
+		// limitation is documented in the schema guide rather than hidden.
+	},
+	"rabbitmq": {
+		majorUpgradeInPlace: true,
+		image:               "rabbitmq", port: 5672, dataPath: "/var/lib/rabbitmq",
+		health:    []string{"CMD-SHELL", "rabbitmq-diagnostics -q ping"},
+		secretEnv: []string{"RABBITMQ_DEFAULT_PASS"},
+		urlUser:   "onebox", scheme: "amqp", user: "onebox", settings: settingsEnv,
+	},
+	"minio": {
+		majorUpgradeInPlace: true,
+		image:               "minio/minio", port: 9000, dataPath: "/data",
+		health:    []string{"CMD-SHELL", "mc ready local"},
+		command:   []string{"server", "/data", "--console-address", ":9001"},
+		secretEnv: []string{"MINIO_ROOT_PASSWORD"},
+		urlUser:   "onebox", scheme: "s3", user: "onebox", settings: settingsEnv,
+	},
+	"meilisearch": {
+		majorUpgradeInPlace: true,
+		image:               "getmeili/meilisearch", port: 7700, dataPath: "/meili_data",
+		health:    []string{"CMD-SHELL", "curl -fsS http://localhost:7700/health"},
+		env:       map[string]string{"MEILI_ENV": "production"},
+		secretEnv: []string{"MEILI_MASTER_KEY"},
+		scheme:    "http", settings: settingsEnv,
+	},
+	"clickhouse": {
+		database: true,
+		image:    "clickhouse/clickhouse-server", port: 8123, dataPath: "/var/lib/clickhouse",
+		health:    []string{"CMD-SHELL", "clickhouse-client --query 'SELECT 1'"},
+		secretEnv: []string{"CLICKHOUSE_PASSWORD"},
+		urlUser:   "onebox", scheme: "http", user: "onebox", settings: settingsEnv,
+	},
+	"nats": {
+		majorUpgradeInPlace: true,
+		image:               "nats", port: 4222, dataPath: "/data",
+		// The nats image carries no shell utilities, so there is nothing to run
+		// as a health check. `needs` on it resolves to "started" rather than
+		// waiting forever on a condition the container can never report.
+		command: []string{"--jetstream", "--store_dir", "/data"},
+		scheme:  "nats", settings: settingsUnsupported,
 	},
 }
 
@@ -519,6 +598,10 @@ func applySettings(name string, d driver, s Service, settings map[string]any, en
 	sort.Strings(keys)
 
 	switch d.settings {
+	case settingsEnv:
+		for _, k := range keys {
+			env[strings.ToUpper(k)] = settings[k]
+		}
 	case settingsPostgres:
 		if len(*command) == 0 {
 			*command = []string{"postgres"}
@@ -533,7 +616,7 @@ func applySettings(name string, d driver, s Service, settings map[string]any, en
 		for _, k := range keys {
 			(*command)[last] += fmt.Sprintf(" --%s %q", k, fmt.Sprint(settings[k]))
 		}
-	default:
+	case settingsUnsupported:
 		return errf("service_settings_unsupported", "services."+name+".settings", "",
 			"the %s driver has no setting mechanism Onebox can apply safely; "+
 				"declare it as a daemon workload if you need to configure it", d.image)
@@ -557,6 +640,8 @@ type ClientEnv struct {
 	Database string
 	Host     string
 	Port     int
+	// Query is appended to the connection string, without a leading "?".
+	Query string
 	// SecretVars are the credential variables, in the order the driver's
 	// credential file declares them. The first is the one the URL embeds.
 	SecretVars []string
@@ -577,7 +662,7 @@ func (p *Spec) ClientEnvFor(name string) (ClientEnv, bool) {
 	return ClientEnv{
 		Service: name, Driver: key, Prefix: envPrefix(name),
 		Scheme: d.scheme, User: d.urlUser, Database: databaseOf(d, p.Name),
-		Host: name, Port: d.port, SecretVars: d.secretEnv,
+		Host: name, Port: d.port, SecretVars: d.secretEnv, Query: d.urlQuery,
 	}, true
 }
 
@@ -732,10 +817,15 @@ func (c ClientEnv) parts() map[string]string {
 		url += c.User + ":$pw@"
 	}
 	url += fmt.Sprintf("%s:%d", c.Host, c.Port)
-	// Every driver that has a database puts it in the URL, keyed off the
-	// database rather than the scheme.
+	// Every driver that has a database puts it in the URL. Keying this off the
+	// scheme dropped it for ClickHouse, whose scheme is http, and handed
+	// applications a connection string pointing at the server with no database
+	// selected — which fails only once something queries.
 	if c.Database != "" {
 		url += "/" + c.Database
+	}
+	if c.Query != "" {
+		url += "?" + c.Query
 	}
 	return map[string]string{
 		"url": url, "host": c.Host, "port": fmt.Sprint(c.Port),

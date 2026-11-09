@@ -52,10 +52,12 @@ func validateExternalService(external ExternalService, path string) error {
 
 func requiredExternalConnectionParts(driver string) []string {
 	switch driver {
-	case "postgres":
+	case "postgres", "mysql", "mariadb", "mongodb", "clickhouse":
 		return []string{"host", "port", "user", "password", "database"}
-	case "redis", "valkey":
+	case "redis", "valkey", "rabbitmq", "minio", "nats":
 		return []string{"host", "port", "user", "password"}
+	case "meilisearch":
+		return []string{"host", "port", "password"}
 	default:
 		return nil
 	}

@@ -478,8 +478,8 @@ func crossFieldRules(p *Spec) error {
 			//
 			// A managed service is not opaque: Onebox wrote its health check
 			// and knows whether the driver has one, so a wait on a driver that
-			// cannot report health is refused here rather than hanging on the
-			// target.
+			// cannot report health — nats carries no shell to run one — is
+			// refused here rather than hanging on the target.
 			hasHealth := isWorkload && dep.Health != nil
 			if isExternal {
 				hasHealth = p.ExternalServices[n.Name].Probe != nil

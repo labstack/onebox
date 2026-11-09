@@ -577,12 +577,17 @@
   {
     "case": "corpus/ext-plausible.yml",
     "loads": true,
-    "digest": "cc8bccee8bd6f96a413d132348bf41d7804bc9c647709306bd42e86fa977a7a5 postgres=361a106a8e2ffde3"
+    "digest": "4574810017062b8d857ad2c43597b484fe88e6b4198f75ec74c2d705cbcf17d1 events=47324284a6e77538 postgres=361a106a8e2ffde3"
   },
   {
     "case": "corpus/ext-umami.yml",
     "loads": true,
     "digest": "fd193a8c2f51cbe206e2e038ccd277c3e6785c84912b5967a2afd58c1320ac13 postgres=d07ceb7c2c0392b1"
+  },
+  {
+    "case": "corpus/ghost.yml",
+    "loads": true,
+    "digest": "7ab89c09054e821edfb0edd5c014b488ca06785d052f4178a688d4008961e1ad mysql=393016b70855b2cd"
   },
   {
     "case": "corpus/gitea.yml",
@@ -628,6 +633,11 @@
     "case": "corpus/recast.yml",
     "loads": true,
     "digest": "render:compose_file_unreadable"
+  },
+  {
+    "case": "corpus/rocketchat.yml",
+    "loads": true,
+    "digest": "4a091cd29c4a572eb57fcc9cd68edb76fbd56eb88ce16aab29efb30cb16af69f mongodb=ada71cea467aa56d"
   },
   {
     "case": "corpus/umami.yml",

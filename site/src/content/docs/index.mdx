@@ -134,7 +134,7 @@ Deployments, data and generated runtime share one evidence-backed lifecycle. [Sh
 
 - **Protect managed data**
 
-  Managed PostgreSQL, Redis and Valkey with durable volumes and credentials. PostgreSQL adds continuous archiving, point-in-time restore and restore drills.
+  Eleven service drivers with durable volumes and credentials. PostgreSQL adds continuous archiving, point-in-time restore and restore drills.
 
 - **Control the host**
 
@@ -190,9 +190,9 @@ Onebox is for one application on one host. These limits matter before you trust 
 
   A service declaring `backup` (PostgreSQL today) is archived off-host and restorable to a point in time. A workload's own volume is not, and `ob doctor` says so for every workload holding durable data.
 
-- **Three managed data services**
+- **`mongodb` runs a standalone server, not a replica set**
 
-  `postgres`, `redis` and `valkey` are run for you. Anything else (MySQL, MongoDB, a queue, object storage) is a `daemon` workload you configure; see the [driver catalogue](/docs/reference/drivers).
+  See the [MongoDB driver limitations](/docs/reference/drivers#known-limitations) before using an application that needs a replica set.
 
 - **One host, and no failover**
 

@@ -68,7 +68,7 @@ func (e *Engine) acquireLock(ctx context.Context, deployID string, force bool, l
 	var epoch int
 	var useScheduleLock bool
 	lock := remoteLock[lockMeta]{
-		label: "deploy lock", path: e.lockPath(), attempts: 4, force: force,
+		label: "deploy lock", path: e.lockPath(), attempts: 4, force: force, ttl: ttl,
 		breakHint: "confirm no deploy is running, then retry with --break-lock",
 		next: func(ctx context.Context) (string, error) {
 			// Read the epoch fresh on every attempt. A concurrent acquirer may
@@ -287,4 +287,42 @@ func sanitizeID(s string) string {
 		return "invalid"
 	}
 	return s
+}
+
+// DeployInProgressError refuses to revert a deploy whose runner is still
+// refreshing the deploy lock: the journal cannot tell an interrupted deploy
+// from one that is running, but the heartbeat can.
+type DeployInProgressError struct {
+	DeployID   string
+	AgeSeconds int
+}
+
+func (err *DeployInProgressError) Error() string {
+	return fmt.Sprintf("deploy %s is still running (its lock was refreshed %ds ago) — wait for it to finish, then `ob rollback`; use --break-lock only if you know its runner is gone", err.DeployID, err.AgeSeconds)
+}
+
+func (err *DeployInProgressError) Code() string { return "deploy_in_progress" }
+
+// liveHeartbeatWindow is how fresh a deploy lock must be to count as held by
+// a running deploy: three missed heartbeats (each lockTTL/10) mean its runner
+// has stopped.
+func (e *Engine) liveHeartbeatWindow() int {
+	return int((3 * e.lockTTL() / 10).Seconds())
+}
+
+// refuseLiveDeploy returns DeployInProgressError when deployID itself holds a
+// recently refreshed deploy lock. Anything else — no lock, another holder, a
+// holder that cannot be read — is left to lock acquisition to judge.
+func (e *Engine) refuseLiveDeploy(ctx context.Context, deployID string) error {
+	holder, present, invalid, err := remoteLock[lockMeta]{label: "deploy lock", path: e.lockPath()}.observe(ctx, e)
+	if err != nil {
+		return err
+	}
+	if !present || invalid != nil || holder.Meta.DeployID != deployID {
+		return nil
+	}
+	if holder.Age <= e.liveHeartbeatWindow() {
+		return &DeployInProgressError{DeployID: deployID, AgeSeconds: holder.Age}
+	}
+	return nil
 }

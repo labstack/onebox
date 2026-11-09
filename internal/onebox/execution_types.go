@@ -385,6 +385,18 @@ func (request ExecuteRequest) Validate() error {
 	return nil
 }
 
+// RollbackKind distinguishes the two things `ob rollback` can do, so a
+// consumer of structured output need not infer it from the journal.
+type RollbackKind string
+
+const (
+	// RollbackInterruptedDeploy reverted an interrupted deploy to the release
+	// that was serving before it; release_id names that release.
+	RollbackInterruptedDeploy RollbackKind = "interrupted_deploy"
+	// RollbackPreviousRelease activated the current release's predecessor.
+	RollbackPreviousRelease RollbackKind = "previous_release"
+)
+
 type OperationResult struct {
 	ID        string          `json:"id"`
 	Kind      OperationKind   `json:"kind"`
@@ -392,10 +404,12 @@ type OperationResult struct {
 	ReleaseID string          `json:"release_id,omitempty"`
 	// EvidenceID is the engine's release/journal correlation key, not a claim
 	// that a journal append completed. An early failure may leave no evidence.
-	EvidenceID                    string                     `json:"evidence_id,omitempty"`
-	StartedAt                     string                     `json:"started_at"`
-	FinishedAt                    string                     `json:"finished_at"`
-	NoOp                          bool                       `json:"no_op,omitempty"`
+	EvidenceID string `json:"evidence_id,omitempty"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+	NoOp       bool   `json:"no_op,omitempty"`
+	// Rollback says which way `ob rollback` went back; empty for other kinds.
+	Rollback                      RollbackKind               `json:"rollback,omitempty"`
 	ApprovalDigest                string                     `json:"approval_digest,omitempty"`
 	BackupReportDigest            string                     `json:"backup_report_digest,omitempty"`
 	MigrationBackupOverrideDigest string                     `json:"migration_backup_override_digest,omitempty"`

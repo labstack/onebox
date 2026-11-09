@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -558,5 +559,65 @@ func TestResumeRefusesADeploySupersededByANewerOne(t *testing.T) {
 	}
 	if seq := strings.Join(f.Commands, "\n"); strings.Contains(seq, "ln -sfn") || strings.Contains(seq, "--scale web=") {
 		t.Fatalf("a superseded deploy must never be re-activated:\n%s", seq)
+	}
+}
+
+// liveLockFake answers the deploy-lock read with a holder for deployID whose
+// lock is ageSeconds old, on top of an interrupted-deploy journal.
+func liveLockFake(holderDeployID string, ageSeconds int) *transport.Fake {
+	f := interruptedFake("changed=false")
+	base := f.Dynamic
+	lock := q("/var/lib/onebox/app/lock")
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "then cat "+lock+" 2>/dev/null; exit 0; fi"):
+			return transport.Result{Stdout: `{"owner":"ci","deploy_id":"` + holderDeployID + `","epoch":1,"ttl_seconds":600}` + "\n"}, true
+		case strings.Contains(cmd, "stat -c %Y "+lock):
+			return transport.Result{Stdout: strconv.Itoa(ageSeconds) + "\n"}, true
+		}
+		return base(cmd)
+	}
+	return f
+}
+
+// The journal of a deploy that is still running looks interrupted. Reverting
+// it must wait while its runner keeps the lock fresh — not fence it, and not
+// report the migration gate for a deploy that was never interrupted.
+func TestRevertRefusesADeployWhoseRunnerIsStillAlive(t *testing.T) {
+	f := liveLockFake(engineTestDeployReleaseID, 30)
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	err := e.Abort(context.Background(), false)
+	var live *DeployInProgressError
+	if !errors.As(err, &live) || live.DeployID != engineTestDeployReleaseID {
+		t.Fatalf("revert of a live deploy = %v, want DeployInProgressError", err)
+	}
+	for _, cmd := range f.Commands {
+		if strings.Contains(cmd, "/fence") || strings.Contains(cmd, `"phase":"abort"`) {
+			t.Fatalf("a live deploy was fenced or journaled as aborted:\n%s", cmd)
+		}
+	}
+}
+
+// A runner that stopped refreshing its lock is gone: past three missed
+// heartbeats, the revert proceeds to lock acquisition as before.
+func TestRevertProceedsWhenTheRunnersLockWentQuiet(t *testing.T) {
+	e := New(testConfig(), testProject(t), liveLockFake(engineTestDeployReleaseID, 181), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	var live *DeployInProgressError
+	if err := e.refuseLiveDeploy(context.Background(), engineTestDeployReleaseID); errors.As(err, &live) || err != nil {
+		t.Fatalf("a quiet lock was treated as live: %v", err)
+	}
+	other := New(testConfig(), testProject(t), liveLockFake("R-OTHER", 5), Options{Out: &bytes.Buffer{}, Sleep: noSleep})
+	if err := other.refuseLiveDeploy(context.Background(), engineTestDeployReleaseID); err != nil {
+		t.Fatalf("another deploy's lock is lock acquisition's to judge, got %v", err)
+	}
+}
+
+// --break-lock is the operator asserting the runner is gone.
+func TestRevertBreakLockSkipsTheLivenessRefusal(t *testing.T) {
+	f := liveLockFake(engineTestDeployReleaseID, 30)
+	e := New(testConfig(), testProject(t), f, Options{Out: &bytes.Buffer{}, Sleep: noSleep, ForceLock: true})
+	var live *DeployInProgressError
+	if err := e.Abort(context.Background(), false); errors.As(err, &live) {
+		t.Fatalf("--break-lock still refused as live: %v", err)
 	}
 }

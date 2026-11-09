@@ -162,13 +162,16 @@ func (s *Service) Execute(ctx context.Context, request ExecuteRequest) (Operatio
 		// One recovery verb: an interrupted deploy is reverted to the release
 		// that was serving before it (migration-gated); otherwise the current
 		// release is replaced by its predecessor.
-		if _, incomplete := e.FindIncomplete(ctx); incomplete == nil {
+		if interrupted, incomplete := e.FindIncomplete(ctx); incomplete == nil {
+			result.Rollback = RollbackInterruptedDeploy
+			result.ReleaseID = interrupted.PrevRelease
 			result.EvidenceID, err = e.AbortWithJournalID(ctx, request.BreakMigrationGate)
 		} else if !errors.Is(incomplete, engine.ErrNoIncomplete) {
 			err = incomplete
 		} else if request.BreakMigrationGate {
 			err = errors.New("--break-migration-gate applies only when rolling back an interrupted deploy, and none is recorded")
 		} else {
+			result.Rollback = RollbackPreviousRelease
 			result.EvidenceID, err = e.RollbackWithJournalID(ctx)
 			result.ReleaseID = result.EvidenceID
 		}

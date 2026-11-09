@@ -121,6 +121,15 @@ func (e *Engine) AbortWithJournalID(ctx context.Context, force bool) (string, er
 }
 
 func (e *Engine) abort(ctx context.Context, s journal.Summary, force bool) (err error) {
+	// A journal that started and never finished is also what a deploy that is
+	// still running looks like. Its own runner keeps the lock fresh, and the
+	// lock protocol lets a recovery of the same deploy reclaim it, so without
+	// this check a revert would fence a live deploy instead of waiting for it.
+	if !e.Opts.ForceLock {
+		if err := e.refuseLiveDeploy(ctx, s.DeployID); err != nil {
+			return err
+		}
+	}
 	if !s.RollbackCovered && !force {
 		// The same condition recoverInterrupted raises, so it carries the
 		// same code: abort and resume are the two commands an operator is

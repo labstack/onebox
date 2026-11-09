@@ -176,6 +176,10 @@ var operationFailureDefinitions = map[string]OperationFailure{
 		Message: "a migration-effect step requires a plan-bound backup report or an audited override",
 		Command: "ob plan --backup-report-out <path>",
 	},
+	"deploy_in_progress": {
+		Message: "the deploy to revert is still running, so rollback waits for it rather than fencing it",
+		Command: "ob status --output json",
+	},
 	"migration_gate_closed": {
 		// Command-neutral: both `ob resume` and `ob rollback` raise this code,
 		// and a sentence naming recovery told an operator who asked to roll

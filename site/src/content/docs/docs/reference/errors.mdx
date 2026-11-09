@@ -124,6 +124,7 @@ step to complete, not a line to run verbatim.
 | `config_exists` | a project file already exists and init refuses to overwrite it | diagnostic | `ob validate --output json` |
 | `config_write_failed` | the project file could not be written | — | — |
 | `confirmation_failed` | the backup report for this local confirmation could not be loaded or does not bind to the plan | next | `ob approve --plan <path> --backup-report <path>` |
+| `deploy_in_progress` | the deploy to revert is still running, so rollback waits for it rather than fencing it | diagnostic | `ob status --output json` |
 | `divergence_detected` | the live application state has diverged from its intended state | diagnostic | `ob audit --output json` |
 | `doctor_failed` | a local readiness check failed | — | — |
 | `exec_failed` | the audited exec could not be completed | diagnostic | `ob status --output json` |

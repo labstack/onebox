@@ -708,6 +708,9 @@ func TestExecuteRecoveryCorrelatesOperationWithJournalEvidence(t *testing.T) {
 	if result.ID == "" || result.ID == "R-INCOMPLETE" || result.EvidenceID != "R-INCOMPLETE" {
 		t.Fatalf("operation and journal identities were not separated: %#v", result)
 	}
+	if result.Rollback != RollbackInterruptedDeploy {
+		t.Fatalf("structured result does not say an interrupted deploy was reverted: %q", result.Rollback)
+	}
 	last := events[len(events)-1]
 	if last.OperationID != result.ID || last.EvidenceID != "R-INCOMPLETE" || last.Status != OperationStatusError {
 		t.Fatalf("final event cannot correlate to journal evidence: %#v", last)

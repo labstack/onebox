@@ -68,6 +68,7 @@ var beyondJSONSchema = map[string]string{
 	// Two structures have to agree, which a schema evaluates independently.
 	"proxy kind none with a route":                  "a route needs something to route it, which is a fact about the proxy block",
 	"managed route middleware without proxy config": "managed middleware references require configuration from the separate proxy block",
+	"operator proxy with PROXY protocol":            "PROXY protocol requires the managed proxy declared in the separate proxy block",
 	"workload and service share a name":             "an identifier is unique across workloads and services, which are separate objects",
 
 	// Facts about values that only resolution knows.

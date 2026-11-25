@@ -125,6 +125,106 @@ func TestBuildTCPPassthrough(t *testing.T) {
 	}
 }
 
+func deviceLabels(proxyProtocol bool) map[string]string {
+	labels := map[string]string{
+		"traefik.tcp.routers.app_device_r0.rule":                   "HostSNI(`device.example.com`)",
+		"traefik.tcp.routers.app_device_r0.entrypoints":            "websecure",
+		"traefik.tcp.routers.app_device_r0.service":                "app_device",
+		"traefik.tcp.routers.app_device_r0.tls":                    "true",
+		"traefik.tcp.routers.app_device_r0.tls.passthrough":        "true",
+		"traefik.tcp.services.app_device.loadbalancer.server.port": "7581",
+	}
+	if proxyProtocol {
+		labels["traefik.tcp.services.app_device.loadbalancer.serverstransport"] = ProxyProtocolV2Transport
+	}
+	return labels
+}
+
+func TestBuildTCPProxyProtocolDefinesAndSelectsTransport(t *testing.T) {
+	document, err := Build([]Container{routedContainer("device", time.Now(), "healthy", "172.20.0.2", deviceLabels(true))}, "onebox-ingress")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := document.TCP.Services["app_device"].LoadBalancer.ServersTransport; got != ProxyProtocolV2Transport {
+		t.Fatalf("service servers transport = %q", got)
+	}
+	transport, ok := document.TCP.ServersTransports[ProxyProtocolV2Transport]
+	if !ok || transport.ProxyProtocol == nil || transport.ProxyProtocol.Version != 2 {
+		t.Fatalf("servers transports = %+v", document.TCP.ServersTransports)
+	}
+	body, err := yaml.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"serversTransports:\n        " + ProxyProtocolV2Transport + ":\n            proxyProtocol:\n                version: 2",
+		"serversTransport: " + ProxyProtocolV2Transport,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("generated YAML lacks %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestBuildTCPWithoutProxyProtocolDefinesNoTransport(t *testing.T) {
+	document, err := Build([]Container{routedContainer("device", time.Now(), "healthy", "172.20.0.2", deviceLabels(false))}, "onebox-ingress")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := document.TCP.Services["app_device"].LoadBalancer.ServersTransport; got != "" {
+		t.Fatalf("service servers transport = %q", got)
+	}
+	if document.TCP.ServersTransports != nil {
+		t.Fatalf("servers transports = %+v", document.TCP.ServersTransports)
+	}
+}
+
+// A transport is a service setting, so old and new containers cannot share a
+// service while they disagree on it. The newest healthy container decides, and
+// only the containers that agree with it stay in rotation.
+func TestBuildTCPProxyProtocolChangeKeepsOnlyAgreeingServers(t *testing.T) {
+	base := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name          string
+		oldPP, newPP  bool
+		wantTransport string
+	}{
+		{"enable", false, true, ProxyProtocolV2Transport},
+		{"disable", true, false, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			document, err := Build([]Container{
+				routedContainer("old-1", base, "healthy", "172.20.0.2", deviceLabels(tc.oldPP)),
+				routedContainer("old-2", base, "healthy", "172.20.0.3", deviceLabels(tc.oldPP)),
+				routedContainer("new-1", base.Add(time.Minute), "healthy", "172.20.0.4", deviceLabels(tc.newPP)),
+				routedContainer("new-2", base.Add(2*time.Minute), "starting", "172.20.0.5", deviceLabels(tc.newPP)),
+			}, "onebox-ingress")
+			if err != nil {
+				t.Fatal(err)
+			}
+			service := document.TCP.Services["app_device"].LoadBalancer
+			if service.ServersTransport != tc.wantTransport {
+				t.Fatalf("servers transport = %q, want %q", service.ServersTransport, tc.wantTransport)
+			}
+			if len(service.Servers) != 1 || service.Servers[0].Address != "172.20.0.4:7581" {
+				t.Fatalf("servers = %+v, want only the new healthy container", service.Servers)
+			}
+			if _, defined := document.TCP.ServersTransports[ProxyProtocolV2Transport]; defined != tc.newPP {
+				t.Fatalf("transport defined = %v, want %v", defined, tc.newPP)
+			}
+		})
+	}
+}
+
+func TestBuildRejectsUnknownTCPServersTransport(t *testing.T) {
+	labels := deviceLabels(false)
+	labels["traefik.tcp.services.app_device.loadbalancer.serverstransport"] = "custom@file"
+	_, err := Build([]Container{routedContainer("device", time.Now(), "healthy", "172.20.0.2", labels)}, "onebox-ingress")
+	if err == nil || !strings.Contains(err.Error(), "unsupported servers transport") {
+		t.Fatalf("unknown transport error = %v", err)
+	}
+}
+
 func TestBuildRejectsInvalidGeneratedBackend(t *testing.T) {
 	_, err := Build([]Container{routedContainer("bad", time.Now(), "healthy", "172.20.0.2", map[string]string{
 		"traefik.http.routers.app_web_r0.rule":                   "Host(`app.example.com`)",

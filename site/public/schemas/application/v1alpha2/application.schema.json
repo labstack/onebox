@@ -2082,6 +2082,23 @@
                     },
                     {
                       "if": {
+                        "required": [
+                          "proxyProtocol"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "protocol": {
+                            "const": "tcp"
+                          }
+                        },
+                        "required": [
+                          "protocol"
+                        ]
+                      }
+                    },
+                    {
+                      "if": {
                         "properties": {
                           "tls": {
                             "const": "Passthrough"
@@ -2157,6 +2174,16 @@
                         "tcp"
                       ],
                       "type": "string"
+                    },
+                    "proxyProtocol": {
+                      "description": "PROXY protocol version the proxy sends to the backend at the start of each connection, so a TCP route's backend can read the client address. Only 2 is accepted. Requires protocol tcp and the Onebox-managed proxy; the backend must expect the header, because it otherwise reads it as data.",
+                      "enum": [
+                        2
+                      ],
+                      "examples": [
+                        2
+                      ],
+                      "type": "integer"
                     },
                     "scheme": {
                       "default": "http",

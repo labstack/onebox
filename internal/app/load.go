@@ -513,6 +513,17 @@ func crossFieldRules(p *Spec) error {
 	if err := checkRouteCollisions(p); err != nil {
 		return err
 	}
+	if !p.Proxy.Managed {
+		for _, name := range sortedKeys(p.Workloads) {
+			for i, route := range p.Workloads[name].Routes {
+				if route.ProxyProtocol != 0 {
+					return errf("project_invalid", indexed("workloads."+name+".routes", i)+".proxy_protocol", "",
+						"proxyProtocol requires a Onebox-managed proxy, which defines the servers transport it selects; "+
+							"an operator-owned proxy enables PROXY protocol in its own configuration")
+				}
+			}
+		}
+	}
 	if p.Proxy.DNSChallenge != nil && (!p.Proxy.Managed || p.Proxy.Kind == "none") {
 		return errf("project_invalid", "proxy.dns_challenge", "", "dns_challenge requires a Onebox-managed proxy")
 	}

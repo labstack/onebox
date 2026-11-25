@@ -23,7 +23,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`args` · `attempts` · `backoff` · `bind` · `build` · `catchUp` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `dataEffect` · `default` · `deployLock` · `deploymentPhase` · `description` · `dockerfile` · `drain` · `driver` · `entrypoint` · `enum` · `env` · `envFiles` · `exec` · `extraHosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `inputs` · `interval` · `labels` · `logging` · `maxBackoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `operatorRun` · `options` · `path` · `pattern` · `persistence` · `port` · `protocol` · `provider` · `publishedPorts` · `pull` · `reference` · `replicas` · `resources` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `shutdownGrace` · `signal` · `source` · `startPeriod` · `stdinOpen` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `within` · `workingDir`
+`args` · `attempts` · `backoff` · `bind` · `build` · `catchUp` · `command` · `compose` · `condition` · `container` · `context` · `cpus` · `cron` · `dataEffect` · `default` · `deployLock` · `deploymentPhase` · `description` · `dockerfile` · `drain` · `driver` · `entrypoint` · `enum` · `env` · `envFiles` · `exec` · `extraHosts` · `file` · `grace` · `health` · `host` · `hostname` · `http` · `image` · `init` · `inputs` · `interval` · `labels` · `logging` · `maxBackoff` · `memory` · `middlewares` · `mode` · `name` · `needs` · `notify` · `operatorRun` · `options` · `path` · `pattern` · `persistence` · `port` · `protocol` · `provider` · `proxyProtocol` · `publishedPorts` · `pull` · `reference` · `replicas` · `resources` · `retries` · `retry` · `role` · `routes` · `schedule` · `scheme` · `shutdownGrace` · `signal` · `source` · `startPeriod` · `stdinOpen` · `strategy` · `target` · `tcp` · `timeout` · `timezone` · `tls` · `tty` · `user` · `volumes` · `wait` · `within` · `workingDir`
 
 ## Reference
 
@@ -96,6 +96,7 @@ cannot drift from what `ob validate` accepts.
 | `<name>.routes[].path` | string | `/` | URL path prefix matched by an HTTP route. Expects a path beginning with /. |
 | `<name>.routes[].port` | integer | — | Container port receiving routed traffic. |
 | `<name>.routes[].protocol` | `http` · `tcp` | `http` | Routing protocol: http or tcp. |
+| `<name>.routes[].proxyProtocol` | `2` | — | PROXY protocol version the proxy sends to the backend at the start of each connection, so a TCP route's backend can read the client address. Only 2 is accepted. Requires protocol tcp and the Onebox-managed proxy; the backend must expect the header, because it otherwise reads it as data. |
 | `<name>.routes[].scheme` | `http` · `https` · `h2c` | `http` | Backend connection scheme for HTTP routes: http, https, or h2c. |
 | `<name>.routes[].tls` | `Terminate` · `Passthrough` · `None` | `Terminate` | TLS handling: terminate, passthrough, or none. |
 | `<name>.schedule` | object | — | Host-resident recurring schedule and run policy for a job, independent of its deployment phase and operator-run policy. |

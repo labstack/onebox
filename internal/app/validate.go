@@ -343,6 +343,19 @@ func validateWorkload(w Workload, path string) error {
 				"%q requires protocol %q: an http route terminates TLS in order to read the request it routes on",
 				"passthrough", "tcp")
 		}
+		if r.ProxyProtocol != 0 {
+			if r.ProxyProtocol != 2 {
+				return errf("project_invalid", rp+".proxy_protocol", "",
+					"PROXY protocol version %d is not supported; use 2", r.ProxyProtocol)
+			}
+			// An HTTP route already forwards the client address in
+			// X-Forwarded-For. A PROXY header in front of the request would
+			// reach an HTTP backend as garbage before the request line.
+			if r.Protocol != "tcp" {
+				return errf("project_invalid", rp+".proxy_protocol", "",
+					"proxyProtocol requires protocol %q: an http route forwards the client address in X-Forwarded-For", "tcp")
+			}
+		}
 	}
 	if err := validateHealth(w.Health, path+".health"); err != nil {
 		return err

@@ -478,6 +478,13 @@ var schemaConstraints = []struct {
 				},
 			},
 			map[string]any{
+				"if": map[string]any{"required": []any{"proxy_protocol"}},
+				"then": map[string]any{
+					"required":   []any{"protocol"},
+					"properties": map[string]any{"protocol": map[string]any{"const": "tcp"}},
+				},
+			},
+			map[string]any{
 				"if": map[string]any{
 					"required":   []any{"tls"},
 					"properties": map[string]any{"tls": map[string]any{"const": "passthrough"}},
@@ -502,6 +509,7 @@ var schemaConstraints = []struct {
 	{[]string{"workloads", "*", "routes", "items", "scheme"}, enum(eRouteScheme)},
 	{[]string{"workloads", "*", "routes", "items", "tls"}, enum(eRouteTLS)},
 	{[]string{"workloads", "*", "routes", "items", "middlewares", "items"}, pattern(gMiddlewareRef)},
+	{[]string{"workloads", "*", "routes", "items", "proxy_protocol"}, map[string]any{"enum": []any{2}}},
 	{[]string{"workloads", "*", "volumes", "items", "name"}, pattern(gIdent)},
 	{[]string{"workloads", "*", "volumes", "items", "path"}, pattern(gAbsPath)},
 	{[]string{"workloads", "*", "volumes", "items", "source"}, bindSourceConstraint()},

@@ -3,6 +3,8 @@ package app
 import (
 	"strings"
 	"testing"
+
+	"github.com/labstack/onebox/internal/discovery"
 )
 
 // 8.5 — every name derived from the author's workloads carries the
@@ -134,6 +136,83 @@ spec:
 	}
 	if strings.Contains(runtime, "traefik.http.routers.onebox_web_r1.middlewares") {
 		t.Fatal("middleware from route zero leaked onto route one")
+	}
+}
+
+// A TCP route with proxyProtocol selects the PROXY protocol v2 transport the
+// discovery controller defines; every other route stays on Traefik's default
+// transport, so enabling it on one route cannot reach another backend.
+func TestTCPRouteProxyProtocolSelectsManagedTransport(t *testing.T) {
+	body := `apiVersion: onebox.run/v1alpha2
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web:
+      image: nginx
+      routes:
+        - {hostname: shop.example.com, port: 3000}
+        - {hostname: device.example.com, port: 7581, protocol: tcp, tls: Passthrough, proxyProtocol: 2}
+        - {hostname: db.example.com, port: 5432, protocol: tcp, tls: Passthrough}
+`
+	r, err := loadText(t, body).Resolve("production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := r.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(canonical), "proxyProtocol: 2") {
+		t.Errorf("the canonical form lost proxyProtocol:\n%s", canonical)
+	}
+	rendered, err := r.Render("production", "R1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := string(rendered.Bytes)
+	want := "traefik.tcp.services.onebox_web_r1.loadbalancer.serverstransport: " + discovery.ProxyProtocolV2Transport
+	if !strings.Contains(runtime, want) {
+		t.Fatalf("the generated runtime is missing:\n  %s\n%s", want, runtime)
+	}
+	if got := strings.Count(runtime, "serverstransport"); got != 1 {
+		t.Fatalf("serverstransport appears %d times; only the proxyProtocol route selects a transport:\n%s", got, runtime)
+	}
+	if strings.Contains(runtime, "proxyprotocol") {
+		t.Fatal("the deprecated per-service loadbalancer.proxyprotocol label must not be generated")
+	}
+}
+
+func TestProxyProtocolRefusals(t *testing.T) {
+	project := func(route, proxy string) string {
+		return `apiVersion: onebox.run/v1alpha2
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web:
+      image: nginx
+      routes:
+        - ` + route + `
+` + proxy
+	}
+	for _, tc := range []struct {
+		name, route, proxy, want string
+	}{
+		{"http route", "{hostname: shop.example.com, port: 3000, proxyProtocol: 2}", "", "X-Forwarded-For"},
+		{"version 1", "{hostname: device.example.com, port: 7581, protocol: tcp, proxyProtocol: 1}", "", "version 1 is not supported"},
+		{"operator-owned proxy", "{hostname: device.example.com, port: 7581, protocol: tcp, proxyProtocol: 2}", "  proxy: {managed: false}\n", "Onebox-managed proxy"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadFixtureBytes([]byte(project(tc.route, tc.proxy)), "ob.yml")
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "routes[0].proxyProtocol") {
+				t.Fatalf("error = %v, want %q at routes[0].proxyProtocol", err, tc.want)
+			}
+		})
 	}
 }
 

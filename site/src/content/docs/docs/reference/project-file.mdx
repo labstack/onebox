@@ -189,7 +189,7 @@ but not `TRAEFIK_*` static overrides.
 
 In both modes, the filenames `onebox.yml`, `onebox.yaml`, and
 `onebox-managed.yml`, the `dynamic/` mountpoint, the `onebox-compress`
-middleware, and HTTP or TCP router or service names beginning with the derived
+middleware, the `onebox-proxy-protocol-v2` TCP servers transport, and HTTP or TCP router or service names beginning with the derived
 `<app>_` prefix are reserved for generated output. `ob deploy`, `ob bootstrap`,
 and `ob proxy apply` refuse an incompatible configuration with migration
 guidance, preventing a proxy from starting with missing or stale routes.
@@ -312,6 +312,51 @@ therefore requires `proxy.config` when a route names middleware. With
 resources instead. Onebox preserves list order when it attaches the chain to
 the generated router. HTTP and TCP routes both support middleware references;
 the referenced middleware must match the route's protocol.
+
+### PROXY protocol on TCP routes
+
+A TCP route forwards the connection's bytes, so the backend's socket peer is
+the proxy for every client. Set `proxyProtocol: 2` when the backend needs the
+client's address, for example to rate-limit by address behind TLS passthrough:
+
+```yaml
+workloads:
+  api:
+    image: ghcr.io/acme/device-api:1.0.0
+    routes:
+      - hostname: device.example.com
+        port: 7581
+        protocol: tcp
+        tls: passthrough
+        proxyProtocol: 2
+```
+
+The managed proxy then writes a
+[PROXY protocol](https://www.haproxy.org/download/2.0/doc/proxy-protocol.txt)
+version 2 header naming the client before the first byte of each connection,
+ahead of the TLS handshake on a passthrough route. Onebox's discovery
+controller defines a TCP servers transport named `onebox-proxy-protocol-v2`
+with `proxyProtocol.version: 2` and selects it from that route's service, the
+form [Traefik documents](https://doc.traefik.io/traefik/reference/routing-configuration/tcp/serverstransport/)
+in place of the per-service `loadBalancer.proxyProtocol` option it deprecated
+in v3.5.2. Other routes keep Traefik's default transport. `ob preview` shows
+the selection as the
+`traefik.tcp.services.<service>.loadbalancer.serverstransport` label.
+
+Only version `2` is accepted, and only on a `protocol: tcp` route: an HTTP
+route already passes the client address in `X-Forwarded-For`. The field
+requires a Onebox-managed proxy; with `proxy.managed: false` the
+operator-owned proxy enables PROXY protocol in its own configuration.
+
+The backend must expect the header. A backend that does not reads it as the
+start of the stream and fails the connection, and one that requires it fails
+every connection that lacks it, so change the route and the backend's setting
+in the same deploy. During a rolling deploy that turns the setting on or off,
+the proxy routes the service only to containers that agree with the newest
+healthy one: old containers leave rotation as soon as the first new container
+is healthy, instead of receiving a header they do not expect. A backend that
+trusts the header should accept it only from the proxy's address on the
+`proxy.network` network.
 
 :::caution[Compose is an output, not an input]
 A Compose file you wrote cannot be the contract: the declaration is, and Onebox

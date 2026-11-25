@@ -35,8 +35,24 @@ type HTTP struct {
 }
 
 type TCP struct {
-	Routers  map[string]TCPRouter  `json:"routers,omitempty" yaml:"routers,omitempty"`
-	Services map[string]TCPService `json:"services,omitempty" yaml:"services,omitempty"`
+	Routers           map[string]TCPRouter           `json:"routers,omitempty" yaml:"routers,omitempty"`
+	Services          map[string]TCPService          `json:"services,omitempty" yaml:"services,omitempty"`
+	ServersTransports map[string]TCPServersTransport `json:"serversTransports,omitempty" yaml:"serversTransports,omitempty"`
+}
+
+// ProxyProtocolV2Transport is the one TCP servers transport discovery defines.
+// A TCP service selects it with the serverstransport label, and Traefik then
+// writes a PROXY protocol v2 header naming the client before the connection's
+// first byte. Traefik v3.5.2 deprecated the per-service
+// loadBalancer.proxyProtocol option in favour of this transport setting.
+const ProxyProtocolV2Transport = "onebox-proxy-protocol-v2"
+
+type TCPServersTransport struct {
+	ProxyProtocol *ProxyProtocol `json:"proxyProtocol,omitempty" yaml:"proxyProtocol,omitempty"`
+}
+
+type ProxyProtocol struct {
+	Version int `json:"version" yaml:"version"`
 }
 
 type HTTPRouter struct {
@@ -87,7 +103,8 @@ type TCPService struct {
 }
 
 type TCPLoadBalancer struct {
-	Servers []TCPServer `json:"servers" yaml:"servers"`
+	Servers          []TCPServer `json:"servers" yaml:"servers"`
+	ServersTransport string      `json:"serversTransport,omitempty" yaml:"serversTransport,omitempty"`
 }
 
 type TCPServer struct {
@@ -106,6 +123,16 @@ type tcpCandidate struct {
 	router  TCPRouter
 }
 
+// tcpBackend is one container's server for a TCP service, with the transport
+// that container's labels ask for. The transport belongs to the service, not
+// to a server, so the servers of one service must agree on it.
+type tcpBackend struct {
+	created   time.Time
+	id        string
+	address   string
+	transport string
+}
+
 // Build converts healthy containers on network into Traefik's file-provider
 // model. A container without a healthcheck is eligible once running; a
 // container with one is eligible only while Docker reports it healthy. That is
@@ -115,7 +142,7 @@ func Build(containers []Container, networkName string) (Dynamic, error) {
 	httpRouters := map[string]httpCandidate{}
 	tcpRouters := map[string]tcpCandidate{}
 	httpServers := map[string]map[string]struct{}{}
-	tcpServers := map[string]map[string]struct{}{}
+	tcpBackends := map[string][]tcpBackend{}
 
 	for _, container := range containers {
 		if !eligible(container) || !enabled(container.Labels) {
@@ -128,7 +155,7 @@ func Build(containers []Container, networkName string) (Dynamic, error) {
 		if err := collectHTTP(container, ip, httpRouters, httpServers); err != nil {
 			return Dynamic{}, err
 		}
-		if err := collectTCP(container, ip, tcpRouters, tcpServers); err != nil {
+		if err := collectTCP(container, ip, tcpRouters, tcpBackends); err != nil {
 			return Dynamic{}, err
 		}
 	}
@@ -148,18 +175,19 @@ func Build(containers []Container, networkName string) (Dynamic, error) {
 			out.HTTP.Services[name] = HTTPService{LoadBalancer: HTTPLoadBalancer{Servers: items}}
 		}
 	}
-	if len(tcpRouters) > 0 || len(tcpServers) > 0 {
+	if len(tcpRouters) > 0 || len(tcpBackends) > 0 {
 		out.TCP = &TCP{Routers: map[string]TCPRouter{}, Services: map[string]TCPService{}}
 		for name, candidate := range tcpRouters {
 			out.TCP.Routers[name] = candidate.router
 		}
-		for name, servers := range tcpServers {
-			values := sortedSet(servers)
-			items := make([]TCPServer, 0, len(values))
-			for _, value := range values {
-				items = append(items, TCPServer{Address: value})
+		for name, backends := range tcpBackends {
+			service := tcpService(backends)
+			if service.LoadBalancer.ServersTransport == ProxyProtocolV2Transport {
+				out.TCP.ServersTransports = map[string]TCPServersTransport{
+					ProxyProtocolV2Transport: {ProxyProtocol: &ProxyProtocol{Version: 2}},
+				}
 			}
-			out.TCP.Services[name] = TCPService{LoadBalancer: TCPLoadBalancer{Servers: items}}
+			out.TCP.Services[name] = service
 		}
 	}
 	return out, nil
@@ -218,7 +246,33 @@ func collectHTTP(container Container, ip string, routers map[string]httpCandidat
 	return nil
 }
 
-func collectTCP(container Container, ip string, routers map[string]tcpCandidate, servers map[string]map[string]struct{}) error {
+// tcpService takes the transport from the newest backend, as routers are
+// taken from the newest container, and keeps only the servers that agree with
+// it. During a rolling switch that changes the transport, the old containers
+// leave the service as soon as the first new one is healthy rather than being
+// sent a PROXY header they do not expect, or sending none to one that does.
+func tcpService(backends []tcpBackend) TCPService {
+	newest := backends[0]
+	for _, backend := range backends[1:] {
+		if newer(backend.created, backend.id, newest.created, newest.id) {
+			newest = backend
+		}
+	}
+	addresses := map[string]struct{}{}
+	for _, backend := range backends {
+		if backend.transport == newest.transport {
+			addresses[backend.address] = struct{}{}
+		}
+	}
+	values := sortedSet(addresses)
+	items := make([]TCPServer, 0, len(values))
+	for _, value := range values {
+		items = append(items, TCPServer{Address: value})
+	}
+	return TCPService{LoadBalancer: TCPLoadBalancer{Servers: items, ServersTransport: newest.transport}}
+}
+
+func collectTCP(container Container, ip string, routers map[string]tcpCandidate, backends map[string][]tcpBackend) error {
 	for _, name := range routerNames(container.Labels, "tcp") {
 		prefix := "traefik.tcp.routers." + name + "."
 		service := container.Labels[prefix+"service"]
@@ -230,7 +284,14 @@ func collectTCP(container Container, ip string, routers map[string]tcpCandidate,
 		if err != nil {
 			return fmt.Errorf("container %s tcp router %s: %w", shortID(container.ID), name, err)
 		}
-		addServer(servers, service, net.JoinHostPort(ip, strconv.Itoa(port)))
+		transport := container.Labels["traefik.tcp.services."+service+".loadbalancer.serverstransport"]
+		if transport != "" && transport != ProxyProtocolV2Transport {
+			return fmt.Errorf("container %s tcp service %s: unsupported servers transport %q", shortID(container.ID), service, transport)
+		}
+		backends[service] = append(backends[service], tcpBackend{
+			created: container.Created, id: container.ID,
+			address: net.JoinHostPort(ip, strconv.Itoa(port)), transport: transport,
+		})
 		router := TCPRouter{
 			Rule: rule, EntryPoints: splitList(container.Labels[prefix+"entrypoints"]),
 			Middlewares: splitList(container.Labels[prefix+"middlewares"]), Service: service,

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
+	"github.com/labstack/onebox/internal/discovery"
 	"gopkg.in/yaml.v3"
 )
 
@@ -433,6 +434,13 @@ func TestStageDynamicExtensionRejectsManagedDefaultCollisions(t *testing.T) {
 				"extension.yml": "http:\n  middlewares:\n    " + managedCompressionMiddleware + ":\n      compress: {}\n",
 			},
 			want: managedCompressionMiddleware,
+		},
+		{
+			name: "reserved PROXY protocol transport",
+			files: map[string]string{
+				"extension.yml": "tcp:\n  serversTransports:\n    " + discovery.ProxyProtocolV2Transport + ":\n      proxyProtocol: {version: 1}\n",
+			},
+			want: discovery.ProxyProtocolV2Transport,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

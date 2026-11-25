@@ -206,6 +206,9 @@ type Route struct {
 	Scheme      string          `json:"scheme" description:"Backend connection scheme for HTTP routes: http, https, or h2c." default:"http"`
 	TLS         string          `json:"tls" description:"TLS handling: terminate, passthrough, or none." default:"terminate"`
 	Middlewares []MiddlewareRef `json:"middlewares,omitempty" description:"Ordered provider-qualified middleware references applied to this route."`
+	// ProxyProtocol is a version number rather than a switch so the field does
+	// not have to change shape if another version is ever admitted.
+	ProxyProtocol int `json:"proxy_protocol,omitempty" description:"PROXY protocol version the proxy sends to the backend at the start of each connection, so a TCP route's backend can read the client address. Only 2 is accepted. Requires protocol tcp and the Onebox-managed proxy; the backend must expect the header, because it otherwise reads it as data." example:"2"`
 }
 
 // MiddlewareRef names dynamic proxy configuration without opening the

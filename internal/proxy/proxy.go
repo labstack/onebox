@@ -32,6 +32,7 @@ import (
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/labstack/onebox/internal/app"
 	"github.com/labstack/onebox/internal/buildinfo"
+	"github.com/labstack/onebox/internal/discovery"
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -694,6 +695,12 @@ func validateDynamicOwnership(name string, body []byte) error {
 				if strings.HasPrefix(object, reservedPrefix) {
 					return fmt.Errorf("%s.%s.%s uses Onebox-reserved prefix %q; rename the custom object", protocol, kind, object, reservedPrefix)
 				}
+			}
+		}
+		if protocol == "tcp" {
+			transports, _ := section["serversTransports"].(map[string]any)
+			if _, exists := transports[discovery.ProxyProtocolV2Transport]; exists {
+				return fmt.Errorf("tcp.serversTransports.%s is reserved for Onebox-managed PROXY protocol; rename the custom object", discovery.ProxyProtocolV2Transport)
 			}
 		}
 		if protocol == "http" {

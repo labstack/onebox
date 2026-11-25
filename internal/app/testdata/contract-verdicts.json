@@ -1,5 +1,10 @@
 [
   {
+    "case": "conformance/PROXY protocol version 1",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/a near-miss field name",
     "loads": false,
     "code": "unknown_field"
@@ -185,6 +190,11 @@
     "code": "project_invalid"
   },
   {
+    "case": "conformance/http route with PROXY protocol",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/http route with TLS passthrough",
     "loads": false,
     "code": "project_invalid"
@@ -293,6 +303,11 @@
     "case": "conformance/operator proxy owns route middleware",
     "loads": true,
     "digest": "93ba8c0a7344004feaa711ef682e2fe31c226768397069613a0a723e58177782"
+  },
+  {
+    "case": "conformance/operator proxy with PROXY protocol",
+    "loads": false,
+    "code": "project_invalid"
   },
   {
     "case": "conformance/persistence block with no mode still refuses replicas",
@@ -418,6 +433,11 @@
     "case": "conformance/status code 600",
     "loads": false,
     "code": "project_invalid"
+  },
+  {
+    "case": "conformance/tcp route with PROXY protocol",
+    "loads": true,
+    "digest": "3358914ef8410317e0161494dfbf6f0b923c624ac738de3e177cfcac74ac2f9e"
   },
   {
     "case": "conformance/the withdrawn secrets block",

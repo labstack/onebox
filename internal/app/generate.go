@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/onebox/internal/discovery"
 	"gopkg.in/yaml.v3"
 )
 
@@ -594,6 +595,12 @@ func (p *Spec) routeLabels(n Names, name string, w Workload) map[string]any {
 		out[sp+"port"] = fmt.Sprint(r.Port)
 		if kind == "http" && r.Scheme != "" && r.Scheme != "http" {
 			out[sp+"scheme"] = r.Scheme
+		}
+		// The discovery controller defines this transport beside the routes it
+		// publishes; validation admits proxy_protocol only on a managed TCP
+		// route, so no operator-owned proxy is asked to resolve the name.
+		if kind == "tcp" && r.ProxyProtocol == 2 {
+			out[fmt.Sprintf("traefik.tcp.services.%s.loadbalancer.serverstransport", svcName)] = discovery.ProxyProtocolV2Transport
 		}
 	}
 	return out

@@ -244,3 +244,81 @@ func TestSignatureMatchesTheStandardWebhooksExample(t *testing.T) {
 		t.Fatalf("Signature = %q, want %q", got, want)
 	}
 }
+
+// shortBounds shrinks the per-attempt timeout and the signed budget so a
+// receiver that never answers exercises both without a 15-second test.
+func shortBounds(t *testing.T, attempt, budget time.Duration) {
+	t.Helper()
+	oldAttempt, oldBudget, oldBackoff := attemptTimeout, signedBudget, signedBackoff
+	attemptTimeout, signedBudget = attempt, budget
+	signedBackoff = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond}
+	t.Cleanup(func() { attemptTimeout, signedBudget, signedBackoff = oldAttempt, oldBudget, oldBackoff })
+}
+
+// hangingReceiver accepts each request and never answers until the test ends.
+func hangingReceiver(t *testing.T) (*httptest.Server, func() int) {
+	t.Helper()
+	var mu sync.Mutex
+	hits := 0
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); srv.Close() })
+	return srv, func() int { mu.Lock(); defer mu.Unlock(); return hits }
+}
+
+func TestSignedSendStopsAtItsBudget(t *testing.T) {
+	shortBounds(t, 200*time.Millisecond, 450*time.Millisecond)
+	t.Setenv("TEST_ONEBOX_WEBHOOK_SECRET", testSecret)
+	srv, hits := hangingReceiver(t)
+	start := time.Now()
+	err := Send(t.Context(), signedConfig(srv.URL), Payload{Status: "fail"})
+	elapsed := time.Since(start)
+	if err == nil || !strings.Contains(err.Error(), "not delivered within 450ms") {
+		t.Fatalf("Send = %v, want the budget named", err)
+	}
+	if elapsed > 450*time.Millisecond+150*time.Millisecond {
+		t.Fatalf("signed send took %s, beyond its 450ms budget", elapsed)
+	}
+	// A hung attempt is timed out and retried, and the budget, not the
+	// attempt count, ends the send.
+	if n := hits(); n < 2 || n > SignedAttempts {
+		t.Fatalf("got %d attempts within the budget, want 2 to %d", n, SignedAttempts)
+	}
+	if strings.Contains(err.Error(), testSecret) {
+		t.Fatalf("error carries the secret: %v", err)
+	}
+}
+
+func TestSendAllBoundsManyDeadReceiversByOneBudget(t *testing.T) {
+	shortBounds(t, 200*time.Millisecond, 400*time.Millisecond)
+	t.Setenv("TEST_ONEBOX_WEBHOOK_SECRET", testSecret)
+	notifications := map[string]app.Notification{}
+	for _, name := range []string{"a", "b", "c", "d"} {
+		srv, _ := hangingReceiver(t)
+		notifications[name] = signedConfig(srv.URL)
+	}
+	ok, _ := receiver(t)
+	notifications["live"] = signedConfig(ok.URL)
+	start := time.Now()
+	failures := SendAll(t.Context(), notifications, Payload{Status: "fail"})
+	elapsed := time.Since(start)
+	// Sent in turn, four dead receivers would take four budgets.
+	if elapsed > 400*time.Millisecond+200*time.Millisecond {
+		t.Fatalf("SendAll took %s; several dead receivers must cost about one budget", elapsed)
+	}
+	var names []string
+	for _, f := range failures {
+		names = append(names, f.Name)
+	}
+	if strings.Join(names, ",") != "a,b,c,d" {
+		t.Fatalf("failures = %v, want the four dead receivers in name order", names)
+	}
+}

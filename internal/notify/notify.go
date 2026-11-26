@@ -29,8 +29,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
@@ -46,9 +48,15 @@ const (
 	SignedBudget   = 15 * time.Second
 )
 
-// signedBackoff is the pause before each retry. A variable so tests do not
-// wait for it.
-var signedBackoff = []time.Duration{500 * time.Millisecond, time.Second}
+// The values Send uses. Variables so tests can exercise the bounds without
+// waiting for them: attemptTimeout bounds one request, signedBudget every
+// attempt of one signed send, and signedBackoff is the pause before each
+// retry.
+var (
+	attemptTimeout = timeout
+	signedBudget   = SignedBudget
+	signedBackoff  = []time.Duration{500 * time.Millisecond, time.Second}
+)
 
 // secretPrefix is the Standard Webhooks marker on a symmetric secret.
 const secretPrefix = "whsec_"
@@ -231,7 +239,8 @@ func Send(ctx context.Context, cfg app.Notification, p Payload) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, SignedBudget)
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, signedBudget)
 	defer cancel()
 	var lastErr error
 	for attempt := 1; attempt <= SignedAttempts; attempt++ {
@@ -257,10 +266,42 @@ func Send(ctx context.Context, cfg app.Notification, p Payload) error {
 			break
 		}
 	}
-	if errors.Is(lastErr, context.DeadlineExceeded) && ctx.Err() != nil {
-		return fmt.Errorf("webhook not delivered within %s: %w", SignedBudget, lastErr)
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+		return fmt.Errorf("webhook not delivered within %s: %w", signedBudget, lastErr)
 	}
 	return lastErr
+}
+
+// Failure is one notification that could not be delivered, for the caller to
+// warn on.
+type Failure struct {
+	Name string
+	Err  error
+}
+
+// SendAll sends p to every named notification at once and returns the
+// failures in name order. Concurrency is what keeps the fail-open bound: one
+// dead receiver costs at most one budget however many are configured, where
+// sending in turn would add their budgets together.
+func SendAll(ctx context.Context, notifications map[string]app.Notification, p Payload) []Failure {
+	names := make([]string, 0, len(notifications))
+	for name := range notifications {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	errs := make([]error, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Go(func() { errs[i] = Send(ctx, notifications[name], p) })
+	}
+	wg.Wait()
+	var failures []Failure
+	for i, err := range errs {
+		if err != nil {
+			failures = append(failures, Failure{Name: names[i], Err: err})
+		}
+	}
+	return failures
 }
 
 // post makes one attempt. retry reports whether the failure is one a retry
@@ -276,7 +317,7 @@ func post(ctx context.Context, webhook string, prepared *Request, headers map[st
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: attemptTimeout}
 	res, err := client.Do(req)
 	if err != nil {
 		return true, err

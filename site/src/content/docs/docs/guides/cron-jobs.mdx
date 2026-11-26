@@ -224,11 +224,13 @@ it sends, so the key never appears in any command's arguments, `ps`, or
 every retry. A signed send makes at most three attempts of four seconds each,
 one second apart, and retries only a network error, a 429, or a 5xx; the unit's
 `TimeoutStopSec` grows by ten seconds to allow for them. If the secret is unset
-or malformed when you deploy, `ob deploy` warns and the handler logs that the
-notification was not sent; it never sends that receiver an unsigned request. A
-host without `openssl` logs the send as failed. Rotate the secret by exporting
-the new one and deploying again; each deploy rewrites the key files and removes
-any a removed notification left behind.
+or malformed when you deploy, `ob deploy` warns and keeps the key files already
+on the host, so the job goes on signing with the last good key; a host with no
+key files logs that the notification was not sent, and never sends that
+receiver an unsigned request. A host without `openssl` logs the send as failed.
+Rotate the secret by exporting the new one and deploying again. The key files
+are deleted, staging copies included, only when the notification stops being
+signed or the job is removed.
 
 ```yaml
 notifications:

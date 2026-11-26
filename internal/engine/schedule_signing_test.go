@@ -42,19 +42,17 @@ func runSignedNotifier(t *testing.T, codes []string, secret string) (string, []s
 // host's openssl and curl were started with — what ps and /proc/<pid>/cmdline
 // would show.
 func runSignedNotifierWith(t *testing.T, codes []string, secret string, writePads bool) (string, []signedAttempt, string) {
-	script, attempts, log, _ := runSignedNotifierArgv(t, codes, secret, writePads)
+	script, attempts, log, _ := runSignedNotifierArgv(t, codes, secret, writePads, nil)
 	return script, attempts, log
 }
 
-func runSignedNotifierArgv(t *testing.T, codes []string, secret string, writePads bool) (string, []signedAttempt, string, string) {
+// priorKey, when set, stands for the pads an earlier deploy left on the host.
+func runSignedNotifierArgv(t *testing.T, codes []string, secret string, writePads bool, priorKey []byte) (string, []signedAttempt, string, string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX shell required")
 	}
-	realOpenSSL, err := exec.LookPath("openssl")
-	if err != nil {
-		t.Skip("openssl is what signs on the host, and it is not installed here")
-	}
+	realOpenSSL := requireOpenSSL(t)
 	t.Setenv("TEST_SCHEDULE_WEBHOOK_SECRET", secret)
 	base := t.TempDir()
 	cfg := testConfig()
@@ -73,8 +71,22 @@ func runSignedNotifierArgv(t *testing.T, codes []string, secret string, writePad
 	if err := os.WriteFile(notifyPath, []byte(script), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if priorKey != nil {
+		inner, outer := hmacPads(priorKey)
+		suffix := signingPadSuffix("facet")
+		if err := os.WriteFile(notifyPath+suffix+".ipad", inner, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(notifyPath+suffix+".opad", outer, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if writePads {
+		// What schedule apply writes: a nil pad is one it leaves alone.
 		for suffix, pad := range pads {
+			if pad == nil {
+				continue
+			}
 			if err := os.WriteFile(notifyPath+suffix, pad, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -196,19 +208,29 @@ func TestScheduledJobDoesNotRetryARefusedSignedSend(t *testing.T) {
 	}
 }
 
-func TestScheduledJobWithoutASigningSecretSendsNothingUnsigned(t *testing.T) {
-	script, attempts, log := runSignedNotifier(t, nil, "")
+func TestScheduledJobWithoutASigningSecretOrPadsSendsNothing(t *testing.T) {
+	_, attempts, log := runSignedNotifier(t, nil, "")
 	if len(attempts) != 0 {
-		t.Fatalf("sent %d unsigned request(s) to a receiver that verifies signatures", len(attempts))
+		t.Fatalf("sent %d request(s) with nothing to sign them", len(attempts))
 	}
-	if !strings.Contains(log, "TEST_SCHEDULE_WEBHOOK_SECRET") || !strings.Contains(log, "will not be sent from the host") {
-		t.Fatalf("the deploy must warn that the notification is off:\n%s", log)
+	if !strings.Contains(log, "TEST_SCHEDULE_WEBHOOK_SECRET") || !strings.Contains(log, "signing secret unavailable; kept existing pads") {
+		t.Fatalf("the deploy must warn that the secret was unavailable:\n%s", log)
 	}
-	if !strings.Contains(log, "signing secret was unavailable") {
+	if !strings.Contains(log, "signing pads are missing") {
 		t.Fatalf("the host must log why it sent nothing:\n%s", log)
 	}
-	if strings.Contains(script, "openssl") {
-		t.Fatalf("a notifier with no key must not try to sign:\n%s", script)
+}
+
+// A deploy run without the secret exported keeps the pads the last deploy
+// wrote, so the job goes on signing with the last good key.
+func TestScheduledJobWithoutASigningSecretSignsWithKeptPads(t *testing.T) {
+	_, attempts, log, _ := runSignedNotifierArgv(t, []string{"200"}, "", true, scheduleSigningKey)
+	if len(attempts) != 1 {
+		t.Fatalf("got %d attempts, want 1 signed with the kept pads", len(attempts))
+	}
+	verifyScheduleSignature(t, attempts[0])
+	if !strings.Contains(log, "signing secret unavailable; kept existing pads") {
+		t.Fatalf("the deploy must warn that it kept the pads:\n%s", log)
 	}
 }
 
@@ -226,7 +248,7 @@ func TestSignedScheduleExtendsTheStopTimeout(t *testing.T) {
 // not in the argument lists the host actually started openssl and curl with.
 func TestScheduledJobSigningKeyIsNeverACommandArgument(t *testing.T) {
 	secret := "whsec_" + base64.StdEncoding.EncodeToString(scheduleSigningKey)
-	script, attempts, _, argv := runSignedNotifierArgv(t, []string{"200"}, secret, true)
+	script, attempts, _, argv := runSignedNotifierArgv(t, []string{"200"}, secret, true, nil)
 	if len(attempts) != 1 {
 		t.Fatalf("got %d attempts, want 1", len(attempts))
 	}
@@ -310,9 +332,9 @@ func TestScheduleApplyWritesPadsBesideTheNotifierAndClearsStaleOnes(t *testing.T
 	seq := strings.Join(f.Commands, "\n")
 	notify := "/etc/systemd/system/onebox-job-nightly.notify"
 	for _, want := range []string{
-		"rm -f '" + notify + "'.*.ipad '" + notify + "'.*.opad",
-		"cat > '" + notify + ".0.ipad.onebox-tmp'",
-		"cat > '" + notify + ".0.opad.onebox-tmp'",
+		"for f in '" + notify + "'.*pad*; do case \"$f\" in *) rm -f \"$f\" ;; esac; done",
+		"cat > '" + notify + signingPadSuffix("facet") + ".ipad.onebox-tmp'",
+		"cat > '" + notify + signingPadSuffix("facet") + ".opad.onebox-tmp'",
 	} {
 		if !strings.Contains(seq, want) {
 			t.Errorf("schedule apply is missing %q:\n%s", want, seq)
@@ -331,5 +353,99 @@ func TestScheduleApplyWritesPadsBesideTheNotifierAndClearsStaleOnes(t *testing.T
 		if strings.Contains(cmd, string(inner)) || strings.Contains(cmd, hex.EncodeToString(inner)) || strings.Contains(cmd, hex.EncodeToString(scheduleSigningKey)) {
 			t.Fatalf("a host command carries key material: %q", cmd)
 		}
+	}
+}
+
+// requireOpenSSL finds the openssl the host signs with. Without it the host
+// signing tests cannot run; under CI that is a failure, not a skip, so a green
+// build always means host signing was verified.
+func requireOpenSSL(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("openssl")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("openssl is what signs on the host and CI must verify it; install openssl on the runner")
+		}
+		t.Skip("openssl is what signs on the host, and it is not installed here")
+	}
+	return path
+}
+
+// The cleanup a deploy runs, executed against real files: every pad and
+// staging copy goes, except the pads of a notification whose secret the deploy
+// could not read.
+func TestSigningPadCleanupKeepsOnlyThePadsItWasTold(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell required")
+	}
+	dir := t.TempDir()
+	notify := filepath.Join(dir, "onebox-job-nightly.notify")
+	kept, gone := signingPadSuffix("facet"), signingPadSuffix("removed")
+	files := map[string]bool{
+		notify:                                    true,
+		notify + kept + ".ipad":                   true,
+		notify + kept + ".opad":                   true,
+		notify + kept + ".ipad.onebox-tmp":        false,
+		notify + gone + ".ipad":                   false,
+		notify + gone + ".opad":                   false,
+		notify + gone + ".opad.onebox-tmp":        false,
+		notify + ".onebox-tmp":                    true, // the notifier's own staging file is not a pad
+		filepath.Join(dir, "onebox-job-x.notify"): true,
+	}
+	for path := range files {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keep := keptPads(map[string][]byte{kept + ".ipad": nil, kept + ".opad": nil, ".other.ipad": {1}})
+	if out, err := exec.CommandContext(context.Background(), "sh", "-c", signingPadCleanup(notify, keep)).CombinedOutput(); err != nil {
+		t.Fatalf("cleanup failed: %v\n%s", err, out)
+	}
+	for path, stays := range files {
+		_, err := os.Stat(path)
+		if stays != (err == nil) {
+			t.Errorf("%s: present=%t, want %t", filepath.Base(path), err == nil, stays)
+		}
+	}
+}
+
+// With no signed notification left, every pad goes.
+func TestScheduleApplyWithoutSecretKeepsPadsAndWarns(t *testing.T) {
+	cfg := testConfig()
+	cfg.Workloads["nightly"] = app.Workload{
+		Role: app.RoleJob, DeploymentPhase: "none", DataEffect: "none",
+		Schedule: &app.JobSchedule{Cron: "0 2 * * *", Timezone: "UTC", Timeout: "45m", Notify: []string{"failure"}},
+	}
+	cfg.Notifications = map[string]app.Notification{
+		"facet": {Webhook: "https://facet.example.invalid/hooks/onebox", On: []string{"failure"}, Format: "json", SigningSecretEnv: "TEST_SCHEDULE_WEBHOOK_SECRET"},
+	}
+	t.Setenv("TEST_SCHEDULE_WEBHOOK_SECRET", "")
+	f := happyFake()
+	base := f.Dynamic
+	f.Dynamic = func(cmd string) (transport.Result, bool) {
+		switch {
+		case strings.Contains(cmd, "current/compose.yaml"), strings.Contains(cmd, "systemd-analyze calendar"), strings.Contains(cmd, "command -v flock"):
+			return transport.Result{Stdout: "ok\n"}, true
+		case strings.Contains(cmd, "list-unit-files"):
+			return transport.Result{}, true
+		}
+		return base(cmd)
+	}
+	out := &bytes.Buffer{}
+	e := New(cfg, testProject(t), f, Options{Out: out, Sleep: noSleep, Environment: "production"})
+	if err := e.ScheduleApply(context.Background(), "R9-schedule-apply"); err != nil {
+		t.Fatalf("a missing signing secret must not fail the deploy: %v", err)
+	}
+	seq := strings.Join(f.Commands, "\n")
+	notify := "/etc/systemd/system/onebox-job-nightly.notify"
+	suffix := signingPadSuffix("facet")
+	if want := "case \"$f\" in '" + notify + suffix + ".ipad') ;; '" + notify + suffix + ".opad') ;; *) rm -f"; !strings.Contains(seq, want) {
+		t.Fatalf("the cleanup must keep the existing pads; want %q in:\n%s", want, seq)
+	}
+	if strings.Contains(seq, suffix+".ipad.onebox-tmp") {
+		t.Fatal("pads were written without a key to derive them from")
+	}
+	if !strings.Contains(out.String(), "signing secret unavailable; kept existing pads") {
+		t.Fatalf("the deploy must warn:\n%s", out.String())
 	}
 }

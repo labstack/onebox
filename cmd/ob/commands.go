@@ -294,7 +294,8 @@ func notifyOperationOutcome(ctx context.Context, cfg *app.Resolved, g *globalFla
 		evidenceID = result.ReleaseID
 	}
 	// The operation context is cancelled by Ctrl-C and SIGTERM. Its outcome is
-	// still worth sending; notify.Send has its own bounded HTTP timeout.
+	// still worth sending; notify.Send bounds itself: one 5s attempt, or for a
+	// signed notification at most three attempts within notify.SignedBudget.
 	notifyOutcome(context.WithoutCancel(ctx), cfg, g, verb, evidenceID, err)
 }
 

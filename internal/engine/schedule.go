@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -95,7 +96,7 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
 		}
-		service := scheduleServiceUnit(e.Spec.Name, job, runnerPath, notifyPath)
+		service := scheduleServiceUnit(e.Spec.Name, job, runnerPath, notifyPath, e.scheduleSigns(job))
 		timer := scheduleTimerUnit(e.Spec.Name, job)
 		if err := e.writeServiceFile(ctx, runnerPath, []byte(runner)); err != nil {
 			return fmt.Errorf("job %s: cannot install its runner: %w", job.Name, err)
@@ -575,7 +576,16 @@ func scheduleRuntimeEnvArgs(projectDir string, entries []app.EnvFile) string {
 	return args
 }
 
-func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, notifyPath string) string {
+// signedStopAllowance is what a signed notification's retries can add to
+// ExecStopPost beyond the single bounded send the stop timeout already
+// allows for.
+const signedStopAllowance = notify.SignedBudget - 5*time.Second
+
+func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, notifyPath string, signed bool) string {
+	stop := job.ShutdownGrace + 10*time.Second
+	if signed {
+		stop += signedStopAllowance
+	}
 	return strings.Join([]string{
 		"[Unit]",
 		"Description=Onebox scheduled job " + job.Name + " for " + application,
@@ -591,7 +601,7 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 		// runner's state and SERVICE_RESULT, then notifies per the job's policy.
 		"ExecStopPost=/bin/sh " + notifyPath,
 		"TimeoutStartSec=" + job.Timeout,
-		"TimeoutStopSec=" + (job.ShutdownGrace + 10*time.Second).String(),
+		"TimeoutStopSec=" + stop.String(),
 		"",
 	}, "\n")
 }
@@ -718,12 +728,13 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 			wants["fail"] = true
 		}
 	}
+	keys := e.scheduleSigningKeys(job)
 	sends := map[string][]string{}
 	for _, class := range []string{"ok", "skipped", "fail"} {
 		if !wants[class] {
 			continue
 		}
-		rendered, err := e.scheduleNotificationSends(job.Name, environment, class)
+		rendered, err := e.scheduleNotificationSends(job.Name, environment, class, keys)
 		if err != nil {
 			return "", err
 		}
@@ -751,14 +762,55 @@ func orNoop(lines []string) []string {
 	return lines
 }
 
+// scheduleSigns reports whether any notification this job can send is signed,
+// which is when its stop timeout must allow for retries.
+func (e *Engine) scheduleSigns(job app.ScheduledJob) bool {
+	if len(job.Notify) == 0 {
+		return false
+	}
+	for _, cfg := range e.Spec.Notifications {
+		if cfg.SigningSecretEnv != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// scheduleSigningKeys resolves, from the deploying operator's environment,
+// the signing key of each signed notification this job can send. The host has
+// no Onebox to sign at 2am, so the key travels in the root-only notifier
+// beside the webhook URL, and the host computes the signature at send time
+// over the body it actually sends. A notification whose secret is unavailable
+// maps to nil: the host is told not to send it, because an unsigned request
+// to a receiver that verifies signatures is one it must reject. That is a
+// warning, never a failed deploy.
+func (e *Engine) scheduleSigningKeys(job app.ScheduledJob) map[string][]byte {
+	if !e.scheduleSigns(job) {
+		return nil
+	}
+	keys := map[string][]byte{}
+	for _, name := range sortedNames(e.Spec.Notifications) {
+		cfg := e.Spec.Notifications[name]
+		if cfg.SigningSecretEnv == "" {
+			continue
+		}
+		key, err := notify.SigningKey(cfg)
+		if err != nil {
+			e.warnf("job %s: notification %s will not be sent from the host: %v", job.Name, name, err)
+		}
+		keys[name] = key
+	}
+	return keys
+}
+
 // scheduleNotificationSends renders one backgrounded curl per notification
 // that selects the given class: ok, skipped, or fail. A skip routes with the
 // failures, because that is the channel an operator watches, and says what it
 // is rather than claiming the job failed. A failed send is logged and never
 // replaces the job's own result.
-func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]string, error) {
+func (e *Engine) scheduleNotificationSends(job, environment, class string, keys map[string][]byte) ([]string, error) {
 	var sends []string
-	for _, name := range sortedNames(e.Spec.Notifications) {
+	for i, name := range sortedNames(e.Spec.Notifications) {
 		cfg := e.Spec.Notifications[name]
 		status := "fail"
 		if class == "ok" {
@@ -780,6 +832,15 @@ func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]st
 		if prepared == nil {
 			continue
 		}
+		if cfg.SigningSecretEnv != "" {
+			key := keys[name]
+			if key == nil {
+				sends = append(sends, "  echo "+q("onebox: notification "+name+" not sent: its signing secret was unavailable when this job was deployed")+" >&2")
+				continue
+			}
+			sends = append(sends, signedScheduleSend(name, i, cfg.Webhook, prepared, key))
+			continue
+		}
 		curl := "curl --fail --silent --show-error --max-time 5 --request POST" +
 			" --header " + q("Content-Type: "+prepared.ContentType) +
 			" --header " + q("X-Title: "+prepared.Title) +
@@ -788,6 +849,30 @@ func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]st
 			q("onebox: notification "+name+" failed")+" >&2; fi) &")
 	}
 	return sends, nil
+}
+
+// signedScheduleSend renders a Standard Webhooks send for the host: the same
+// body as an unsigned send, signed with openssl over the bytes curl posts.
+// The webhook-id is the systemd invocation plus the notification's position,
+// fixed before the first attempt, so every retry repeats it. Each attempt
+// takes a fresh timestamp and signature. At most notify.SignedAttempts
+// attempts of four seconds with a one-second pause between them fit in
+// notify.SignedBudget; only a network error (000), a 429 or a 5xx is retried.
+// Without openssl the send is not attempted, and the failure is logged.
+func signedScheduleSend(name string, index int, webhook string, prepared *notify.Request, key []byte) string {
+	attempts := strconv.Itoa(notify.SignedAttempts)
+	sign := `sig=$(printf '%s.%s.%s' "$id" "$wts" "$body" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key" -binary | openssl base64 -A) || break; [ -n "$sig" ] || break; `
+	curl := "code=$(curl --silent --show-error --max-time 4 --output /dev/null --write-out '%{http_code}' --request POST" +
+		" --header " + q("Content-Type: "+prepared.ContentType) +
+		" --header " + q("X-Title: "+prepared.Title) +
+		` --header "webhook-id: $id" --header "webhook-timestamp: $wts" --header "webhook-signature: v1,$sig"` +
+		` --data-binary "$body" ` + q(webhook) + "); "
+	return "  (body=" + shellBody(string(prepared.Body)) + "; key=" + q(hex.EncodeToString(key)) +
+		`; id="msg_${INVOCATION_ID:-$(date -u '+%s')$$}_` + strconv.Itoa(index) + `"; attempt=0; sent=''; ` +
+		`while [ "$attempt" -lt ` + attempts + ` ]; do attempt=$((attempt + 1)); wts=$(date -u '+%s'); ` +
+		sign + curl +
+		`case "$code" in 2??) sent=1; break ;; 000|429|5??) [ "$attempt" -lt ` + attempts + ` ] && sleep 1 ;; *) break ;; esac; done; ` +
+		`if [ -z "$sent" ]; then echo ` + q("onebox: notification "+name+" failed") + " >&2; fi) &"
 }
 
 // shellBody quotes a prepared body for the shell, leaving the two runtime

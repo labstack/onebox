@@ -187,7 +187,7 @@ func TestScheduledJobUnitContract(t *testing.T) {
 	runner := scheduleRunnerScript("sample", job, names, "/var/lib/onebox/app/lock", nil, 10*time.Minute, true)
 	service := scheduleServiceUnit("sample", job,
 		"/etc/systemd/system/onebox-job-nightly.run",
-		"/etc/systemd/system/onebox-job-nightly.notify")
+		"/etc/systemd/system/onebox-job-nightly.notify", false)
 	timer := scheduleTimerUnit("sample", job)
 
 	for _, want := range []string{
@@ -1155,7 +1155,7 @@ func TestScheduledJobRunnersRecordRunStateForTheNotifier(t *testing.T) {
 		})
 	}
 	service := scheduleServiceUnit("sample", app.ScheduledJob{Name: "nightly", Timeout: "45m"},
-		"/etc/systemd/system/onebox-job-nightly.run", "/etc/systemd/system/onebox-job-nightly.notify")
+		"/etc/systemd/system/onebox-job-nightly.run", "/etc/systemd/system/onebox-job-nightly.notify", false)
 	if strings.Contains(service, "SuccessExitStatus") {
 		t.Errorf("a skip is recorded by the runner and exits 0; the unit needs no exit-status remap:\n%s", service)
 	}

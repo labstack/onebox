@@ -160,6 +160,17 @@ func validateTopLevel(p *Spec) error {
 				return err
 			}
 		}
+		if err := gEnvName.checkOptional("notifications."+name+".signing_secret_env", p.Notifications[name].SigningSecretEnv); err != nil {
+			return err
+		}
+		// The signature covers the exact body bytes, and a receiver that
+		// verifies one reads the structured fields. A text body is a sentence
+		// for a chat channel, so signing it would authenticate nothing a
+		// verifier can use.
+		if p.Notifications[name].SigningSecretEnv != "" && p.Notifications[name].Format != "json" {
+			return errf("project_invalid", "notifications."+name+".format", "",
+				"a signed notification sends the JSON payload; set format: JSON beside signingSecretEnv")
+		}
 	}
 	for _, name := range sortedKeys(p.Hooks) {
 		// A hook key is either a lifecycle seam the engine invokes, or the name

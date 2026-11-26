@@ -214,6 +214,28 @@ journal and never replaces the job's own result. The webhook must be reachable
 from the target host; timer delivery uses its network path, not the operator
 workstation's.
 
+A notification with `signingSecretEnv` is signed on the host as well. `ob
+deploy` reads the Standard Webhooks secret from the operator's environment and
+writes the key into the same root-only handler as the webhook URL, and the
+handler signs each attempt with `openssl` over the body it sends. The
+`webhook-id` is `msg_<invocation id>_<n>`, the same on every retry. A signed send
+makes at most three attempts of four seconds each, one second apart, and
+retries only a network error, a 429, or a 5xx; the unit's `TimeoutStopSec` grows
+by ten seconds to allow for them. While a signature is computed, the key is
+visible in the host's process list, as the webhook URL already is in curl's.
+If the secret is unset or malformed when you deploy, `ob deploy` warns and the
+handler logs that the notification was not sent; it never sends that receiver
+an unsigned request. A host without `openssl` logs the send as failed. Rotate
+the secret by exporting the new one and deploying again.
+
+```yaml
+notifications:
+  facet:
+    webhook: https://facet.example.com/hooks/onebox
+    format: JSON
+    signingSecretEnv: FACET_WEBHOOK_SECRET
+```
+
 ## Cron is translated exactly, or refused
 
 ```

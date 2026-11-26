@@ -430,6 +430,26 @@
     "code": "unknown_field"
   },
   {
+    "case": "conformance/signed JSON notification",
+    "loads": true,
+    "digest": "4722d2d66d41aa91e17ee4e3d9e56074ff6edbae82a46d6202abad3282521801"
+  },
+  {
+    "case": "conformance/signed notification with the default text format",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/signed text notification",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
+    "case": "conformance/signing secret env that is not a variable name",
+    "loads": false,
+    "code": "project_invalid"
+  },
+  {
     "case": "conformance/status code 600",
     "loads": false,
     "code": "project_invalid"

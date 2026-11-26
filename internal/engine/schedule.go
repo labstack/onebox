@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -91,17 +93,34 @@ func (e *Engine) SyncSchedules(ctx context.Context) error {
 			runtimeEnvFiles = e.Spec.Runtime.EnvFiles
 		}
 		runner := scheduleRunnerScript(e.Spec.Name, job, n, e.lockPath(), runtimeEnvFiles, e.lockTTL(), e.hasTriggerUnit(ctx))
-		notifier, err := e.scheduleNotifier(job)
+		notifier, pads, err := e.scheduleNotifierFiles(job)
 		if err != nil {
 			return fmt.Errorf("job %s: cannot render its failure notifier: %w", job.Name, err)
 		}
-		service := scheduleServiceUnit(e.Spec.Name, job, runnerPath, notifyPath)
+		service := scheduleServiceUnit(e.Spec.Name, job, runnerPath, notifyPath, e.scheduleSigns(job))
 		timer := scheduleTimerUnit(e.Spec.Name, job)
 		if err := e.writeServiceFile(ctx, runnerPath, []byte(runner)); err != nil {
 			return fmt.Errorf("job %s: cannot install its runner: %w", job.Name, err)
 		}
 		if err := e.writeServiceFile(ctx, notifyPath, []byte(notifier)); err != nil {
 			return fmt.Errorf("job %s: cannot install its failure notifier: %w", job.Name, err)
+		}
+		// Pads, and any half-written staging copy, of a notification that is
+		// no longer signed must not stay on the host. A signed notification
+		// whose secret this deploy could not read keeps the pads it has, and
+		// the ones this deploy can derive are written fresh below.
+		if res, err := e.mutate(ctx, signingPadCleanup(notifyPath, keptPads(pads))); err != nil {
+			return fmt.Errorf("job %s: cannot clear its signing pads: %w", job.Name, err)
+		} else if res.ExitCode != 0 {
+			return fmt.Errorf("job %s: cannot clear its signing pads: %s", job.Name, strings.TrimSpace(res.Stderr))
+		}
+		for _, suffix := range sortedNames(pads) {
+			if pads[suffix] == nil {
+				continue
+			}
+			if err := e.writeServiceFile(ctx, notifyPath+suffix, pads[suffix]); err != nil {
+				return fmt.Errorf("job %s: cannot install its notification signing pad: %w", job.Name, err)
+			}
 		}
 		if err := e.writeServiceFile(ctx, "/etc/systemd/system/"+unit+".service", []byte(service)); err != nil {
 			return fmt.Errorf("job %s: cannot install its unit: %w", job.Name, err)
@@ -575,7 +594,16 @@ func scheduleRuntimeEnvArgs(projectDir string, entries []app.EnvFile) string {
 	return args
 }
 
-func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, notifyPath string) string {
+// signedStopAllowance is what a signed notification's retries can add to
+// ExecStopPost beyond the single bounded send the stop timeout already
+// allows for.
+const signedStopAllowance = notify.SignedBudget - 5*time.Second
+
+func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, notifyPath string, signed bool) string {
+	stop := job.ShutdownGrace + 10*time.Second
+	if signed {
+		stop += signedStopAllowance
+	}
 	return strings.Join([]string{
 		"[Unit]",
 		"Description=Onebox scheduled job " + job.Name + " for " + application,
@@ -591,7 +619,7 @@ func scheduleServiceUnit(application string, job app.ScheduledJob, runnerPath, n
 		// runner's state and SERVICE_RESULT, then notifies per the job's policy.
 		"ExecStopPost=/bin/sh " + notifyPath,
 		"TimeoutStartSec=" + job.Timeout,
-		"TimeoutStopSec=" + (job.ShutdownGrace + 10*time.Second).String(),
+		"TimeoutStopSec=" + stop.String(),
 		"",
 	}, "\n")
 }
@@ -691,6 +719,15 @@ const scheduleNotificationRun = "__ONEBOX_SCHEDULE_RUN__"
 // contract lives in the notify package and the host has no Onebox to ask at
 // 2am. Only the timestamp and the run id are filled in on the host.
 func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
+	script, _, err := e.scheduleNotifierFiles(job)
+	return script, err
+}
+
+// scheduleNotifierFiles renders the notifier and the signing pads its signed
+// sends read, keyed by the suffix each takes after the notifier's own path. A
+// nil pad is one to keep as the host has it: the secret was unavailable to
+// this deploy, which is no reason to stop signing with the last good one.
+func (e *Engine) scheduleNotifierFiles(job app.ScheduledJob) (string, map[string][]byte, error) {
 	cleanup := scheduleContainerRemove(e.names().Container(job.Name, 1))
 	environment := e.Opts.Environment
 	lines := []string{
@@ -718,14 +755,15 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 			wants["fail"] = true
 		}
 	}
+	keys := e.scheduleSigningKeys(job)
 	sends := map[string][]string{}
 	for _, class := range []string{"ok", "skipped", "fail"} {
 		if !wants[class] {
 			continue
 		}
-		rendered, err := e.scheduleNotificationSends(job.Name, environment, class)
+		rendered, err := e.scheduleNotificationSends(job.Name, environment, class, keys)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		sends[class] = rendered
 	}
@@ -740,7 +778,77 @@ func (e *Engine) scheduleNotifier(job app.ScheduledJob) (string, error) {
 		lines = append(lines, "fi", "wait || true")
 	}
 	lines = append(lines, "exit 0", "")
-	return strings.Join(lines, "\n"), nil
+	var pads map[string][]byte
+	for _, name := range sortedNames(keys) {
+		if pads == nil {
+			pads = map[string][]byte{}
+		}
+		suffix := signingPadSuffix(name)
+		key := keys[name]
+		if key == nil {
+			pads[suffix+".ipad"], pads[suffix+".opad"] = nil, nil
+			continue
+		}
+		inner, outer := hmacPads(key)
+		pads[suffix+".ipad"], pads[suffix+".opad"] = inner, outer
+	}
+	return strings.Join(lines, "\n"), pads, nil
+}
+
+// signingPadSuffix names a signed notification's pads after the notifier's
+// path. The notifier finds them through $0, which systemd sets to that path
+// because ExecStopPost runs it as `/bin/sh <path>`. The suffix is derived from
+// the notification's name, not its position, so a kept pad can never be read
+// for a different notification after one is added or removed, and any name is
+// safe in a file name.
+func signingPadSuffix(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return "." + hex.EncodeToString(sum[:8])
+}
+
+// keptPads lists the pad files a deploy leaves as the host has them.
+func keptPads(pads map[string][]byte) []string {
+	var keep []string
+	for _, suffix := range sortedNames(pads) {
+		if pads[suffix] == nil {
+			keep = append(keep, suffix)
+		}
+	}
+	return keep
+}
+
+// signingPadCleanup removes every pad file beside the notifier, staging
+// copies included, except the ones listed to keep.
+func signingPadCleanup(notifyPath string, keep []string) string {
+	var cmd strings.Builder
+	cmd.WriteString("for f in " + q(notifyPath) + ".*pad*; do case \"$f\" in ")
+	for _, suffix := range keep {
+		cmd.WriteString(q(notifyPath+suffix) + ") ;; ")
+	}
+	cmd.WriteString("*) rm -f \"$f\" ;; esac; done")
+	return cmd.String()
+}
+
+// hmacPads precomputes HMAC-SHA256's keyed blocks (RFC 2104): the key, hashed
+// first when longer than the 64-byte block, zero-padded and XORed with 0x36
+// and 0x5c. With them the host computes the HMAC as two plain SHA-256 runs
+// over files and pipes, so no command it runs takes the key, or anything
+// derived from it, as an argument where ps or /proc/<pid>/cmdline would show
+// it. openssl's own HMAC options only take the key on the command line.
+func hmacPads(key []byte) (inner, outer []byte) {
+	const block = 64
+	if len(key) > block {
+		sum := sha256.Sum256(key)
+		key = sum[:]
+	}
+	inner, outer = make([]byte, block), make([]byte, block)
+	copy(inner, key)
+	copy(outer, key)
+	for i := range block {
+		inner[i] ^= 0x36
+		outer[i] ^= 0x5c
+	}
+	return inner, outer
 }
 
 // orNoop keeps a shell branch syntactically present when it has nothing to do.
@@ -751,14 +859,55 @@ func orNoop(lines []string) []string {
 	return lines
 }
 
+// scheduleSigns reports whether any notification this job can send is signed,
+// which is when its stop timeout must allow for retries.
+func (e *Engine) scheduleSigns(job app.ScheduledJob) bool {
+	if len(job.Notify) == 0 {
+		return false
+	}
+	for _, cfg := range e.Spec.Notifications {
+		if cfg.SigningSecretEnv != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// scheduleSigningKeys resolves, from the deploying operator's environment,
+// the signing key of each signed notification this job can send. The host has
+// no Onebox to sign at 2am, so the key travels as root-only HMAC pad files
+// beside the notifier, never in it, and the host computes the signature at
+// send time over the body it actually sends. A notification whose secret is
+// unavailable maps to nil: its pads on the host are kept, and a host without
+// them sends nothing, because an unsigned request to a receiver that verifies
+// signatures is one it must reject. That is a warning, never a failed deploy.
+func (e *Engine) scheduleSigningKeys(job app.ScheduledJob) map[string][]byte {
+	if !e.scheduleSigns(job) {
+		return nil
+	}
+	keys := map[string][]byte{}
+	for _, name := range sortedNames(e.Spec.Notifications) {
+		cfg := e.Spec.Notifications[name]
+		if cfg.SigningSecretEnv == "" {
+			continue
+		}
+		key, err := notify.SigningKey(cfg)
+		if err != nil {
+			e.warnf("job %s: notification %s: signing secret unavailable; kept existing pads, which sign until it is exported and deployed again: %v", job.Name, name, err)
+		}
+		keys[name] = key
+	}
+	return keys
+}
+
 // scheduleNotificationSends renders one backgrounded curl per notification
 // that selects the given class: ok, skipped, or fail. A skip routes with the
 // failures, because that is the channel an operator watches, and says what it
 // is rather than claiming the job failed. A failed send is logged and never
 // replaces the job's own result.
-func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]string, error) {
+func (e *Engine) scheduleNotificationSends(job, environment, class string, keys map[string][]byte) ([]string, error) {
 	var sends []string
-	for _, name := range sortedNames(e.Spec.Notifications) {
+	for i, name := range sortedNames(e.Spec.Notifications) {
 		cfg := e.Spec.Notifications[name]
 		status := "fail"
 		if class == "ok" {
@@ -780,6 +929,10 @@ func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]st
 		if prepared == nil {
 			continue
 		}
+		if cfg.SigningSecretEnv != "" {
+			sends = append(sends, signedScheduleSend(name, i, cfg.Webhook, prepared))
+			continue
+		}
 		curl := "curl --fail --silent --show-error --max-time 5 --request POST" +
 			" --header " + q("Content-Type: "+prepared.ContentType) +
 			" --header " + q("X-Title: "+prepared.Title) +
@@ -788,6 +941,34 @@ func (e *Engine) scheduleNotificationSends(job, environment, class string) ([]st
 			q("onebox: notification "+name+" failed")+" >&2; fi) &")
 	}
 	return sends, nil
+}
+
+// signedScheduleSend renders a Standard Webhooks send for the host: the same
+// body as an unsigned send, signed over the bytes curl posts. The HMAC is
+// SHA-256 over the inner pad and the message, then over the outer pad and
+// that digest; openssl only hashes, reading the pads from their root-only
+// files, so the key is in no argument list.
+// The webhook-id is the systemd invocation plus the notification's position,
+// fixed before the first attempt, so every retry repeats it. Each attempt
+// takes a fresh timestamp and signature. At most notify.SignedAttempts
+// attempts of four seconds with a one-second pause between them fit in
+// notify.SignedBudget; only a network error (000), a 429 or a 5xx is retried.
+// Without openssl the send is not attempted, and the failure is logged.
+func signedScheduleSend(name string, index int, webhook string, prepared *notify.Request) string {
+	attempts := strconv.Itoa(notify.SignedAttempts)
+	sign := `sig=$({ cat "$pad.opad" && { cat "$pad.ipad" && printf '%s.%s.%s' "$id" "$wts" "$body"; } | openssl dgst -sha256 -binary; } | openssl dgst -sha256 -binary | openssl base64 -A) || break; [ ${#sig} -eq 44 ] || break; `
+	curl := "code=$(curl --silent --show-error --max-time 4 --output /dev/null --write-out '%{http_code}' --request POST" +
+		" --header " + q("Content-Type: "+prepared.ContentType) +
+		" --header " + q("X-Title: "+prepared.Title) +
+		` --header "webhook-id: $id" --header "webhook-timestamp: $wts" --header "webhook-signature: v1,$sig"` +
+		` --data-binary "$body" ` + q(webhook) + "); "
+	return "  (body=" + shellBody(string(prepared.Body)) + `; pad="$0` + signingPadSuffix(name) + `"; ` +
+		`if [ ! -r "$pad.ipad" ] || [ ! -r "$pad.opad" ]; then echo ` + q("onebox: notification "+name+" not sent: its signing pads are missing; deploy again") + ` >&2; exit 0; fi` +
+		`; id="msg_${INVOCATION_ID:-$(date -u '+%s')$$}_` + strconv.Itoa(index) + `"; attempt=0; sent=''; ` +
+		`while [ "$attempt" -lt ` + attempts + ` ]; do attempt=$((attempt + 1)); wts=$(date -u '+%s'); ` +
+		sign + curl +
+		`case "$code" in 2??) sent=1; break ;; 000|429|5??) [ "$attempt" -lt ` + attempts + ` ] && sleep 1 ;; *) break ;; esac; done; ` +
+		`if [ -z "$sent" ]; then echo ` + q("onebox: notification "+name+" failed") + " >&2; fi) &"
 }
 
 // shellBody quotes a prepared body for the shell, leaving the two runtime
@@ -914,7 +1095,7 @@ func (e *Engine) RemoveSchedules(ctx context.Context) error {
 func (e *Engine) removeScheduleUnit(ctx context.Context, unit string) error {
 	disable, disableErr := e.mutate(ctx, "systemctl disable --now "+unit+".timer >/dev/null")
 	remove, removeErr := e.mutate(ctx, fmt.Sprintf(
-		"rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service /etc/systemd/system/%s.run /etc/systemd/system/%s.notify", unit, unit, unit, unit))
+		"rm -f /etc/systemd/system/%s.timer /etc/systemd/system/%s.service /etc/systemd/system/%s.run /etc/systemd/system/%s.notify /etc/systemd/system/%s.notify.*pad*", unit, unit, unit, unit, unit))
 	var errs []error
 	if disableErr != nil {
 		errs = append(errs, fmt.Errorf("disable schedule %s: %w", unit, disableErr))

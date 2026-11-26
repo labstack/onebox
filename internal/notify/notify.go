@@ -7,21 +7,59 @@
 // to WARN on, and must never block, fail, or slow an operation beyond the
 // send timeout. Error strings are the same redaction-safe strings printed to
 // the terminal — secret content never travels, only hashes.
+//
+// A notification that names signing_secret_env is signed with Standard
+// Webhooks (https://www.standardwebhooks.com): webhook-id, webhook-timestamp
+// and webhook-signature headers over the exact body bytes. A signed send is
+// retried, because a receiver that verifies signatures is usually one that
+// records the event rather than a chat channel, within a total bound that
+// keeps the fail-open contract. An unsigned send is one attempt, as before.
 package notify
 
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/onebox/internal/app"
 )
 
 const timeout = 5 * time.Second
+
+// A signed send makes at most SignedAttempts attempts, each bounded by the
+// per-request timeout, and all of them within SignedBudget. The budget is the
+// whole cost a signed notification can add to an operation.
+const (
+	SignedAttempts = 3
+	SignedBudget   = 15 * time.Second
+)
+
+// The values Send uses. Variables so tests can exercise the bounds without
+// waiting for them: attemptTimeout bounds one request, signedBudget every
+// attempt of one signed send, and signedBackoff is the pause before each
+// retry.
+var (
+	attemptTimeout = timeout
+	signedBudget   = SignedBudget
+	signedBackoff  = []time.Duration{500 * time.Millisecond, time.Second}
+)
+
+// secretPrefix is the Standard Webhooks marker on a symmetric secret.
+const secretPrefix = "whsec_"
 
 // Payload is the notification: what ran, where, and how it ended.
 type Payload struct {
@@ -127,6 +165,60 @@ func Prepare(cfg app.Notification, p Payload) (*Request, error) {
 	}, nil
 }
 
+// SigningKey resolves cfg's signing secret from the local environment. It
+// returns nil for an unsigned notification. Errors name the variable and never
+// carry its value.
+func SigningKey(cfg app.Notification) ([]byte, error) {
+	if cfg.SigningSecretEnv == "" {
+		return nil, nil
+	}
+	value := os.Getenv(cfg.SigningSecretEnv)
+	if value == "" {
+		return nil, fmt.Errorf("signing secret env var %s is empty; export the Standard Webhooks secret (whsec_...) to sign this notification", cfg.SigningSecretEnv)
+	}
+	key, err := ParseSigningSecret(value)
+	if err != nil {
+		return nil, fmt.Errorf("signing secret env var %s: %w", cfg.SigningSecretEnv, err)
+	}
+	return key, nil
+}
+
+// ParseSigningSecret decodes a Standard Webhooks secret, whsec_ followed by
+// standard base64, into the HMAC key. Errors describe the shape only.
+func ParseSigningSecret(secret string) ([]byte, error) {
+	encoded, ok := strings.CutPrefix(secret, secretPrefix)
+	if !ok {
+		return nil, errors.New("not a Standard Webhooks secret: it must start with whsec_")
+	}
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(key) == 0 {
+		return nil, errors.New("not a Standard Webhooks secret: the part after whsec_ must be non-empty base64")
+	}
+	return key, nil
+}
+
+// Signature is the webhook-signature header value for one attempt: version 1,
+// an HMAC-SHA256 over "id.timestamp.body".
+func Signature(key []byte, id string, timestamp int64, body []byte) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(id))
+	mac.Write([]byte("."))
+	mac.Write([]byte(strconv.FormatInt(timestamp, 10)))
+	mac.Write([]byte("."))
+	mac.Write(body)
+	return "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// newMessageID is the webhook-id for one logical notification: random, made
+// once, and reused by every retry so a receiver can drop the duplicates.
+func newMessageID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return "msg_" + hex.EncodeToString(b[:]), nil
+}
+
 // Send fires the webhook if the payload's outcome is selected by cfg.On. An
 // unset webhook and a filtered outcome are silent no-ops. Callers treat a
 // returned error as a warning — never as the operation's result.
@@ -135,20 +227,105 @@ func Send(ctx context.Context, cfg app.Notification, p Payload) error {
 	if err != nil || prepared == nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.Webhook, bytes.NewReader(prepared.Body))
+	if cfg.SigningSecretEnv == "" {
+		_, err := post(ctx, cfg.Webhook, prepared, nil)
+		return err
+	}
+	key, err := SigningKey(cfg)
 	if err != nil {
 		return err
+	}
+	id, err := newMessageID()
+	if err != nil {
+		return err
+	}
+	parent := ctx
+	ctx, cancel := context.WithTimeout(ctx, signedBudget)
+	defer cancel()
+	var lastErr error
+	for attempt := 1; attempt <= SignedAttempts; attempt++ {
+		now := time.Now().Unix()
+		headers := map[string]string{
+			"webhook-id":        id,
+			"webhook-timestamp": strconv.FormatInt(now, 10),
+			"webhook-signature": Signature(key, id, now, prepared.Body),
+		}
+		retry, err := post(ctx, cfg.Webhook, prepared, headers)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !retry || attempt == SignedAttempts || ctx.Err() != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(signedBackoff[attempt-1]):
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+		return fmt.Errorf("webhook not delivered within %s: %w", signedBudget, lastErr)
+	}
+	return lastErr
+}
+
+// Failure is one notification that could not be delivered, for the caller to
+// warn on.
+type Failure struct {
+	Name string
+	Err  error
+}
+
+// SendAll sends p to every named notification at once and returns the
+// failures in name order. Concurrency is what keeps the fail-open bound: one
+// dead receiver costs at most one budget however many are configured, where
+// sending in turn would add their budgets together.
+func SendAll(ctx context.Context, notifications map[string]app.Notification, p Payload) []Failure {
+	names := make([]string, 0, len(notifications))
+	for name := range notifications {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	errs := make([]error, len(names))
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Go(func() { errs[i] = Send(ctx, notifications[name], p) })
+	}
+	wg.Wait()
+	var failures []Failure
+	for i, err := range errs {
+		if err != nil {
+			failures = append(failures, Failure{Name: names[i], Err: err})
+		}
+	}
+	return failures
+}
+
+// post makes one attempt. retry reports whether the failure is one a retry
+// could fix: a network error, a 429, or a 5xx. A 4xx is the receiver refusing
+// this request, and the same request will be refused again.
+func post(ctx context.Context, webhook string, prepared *Request, headers map[string]string) (retry bool, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook, bytes.NewReader(prepared.Body))
+	if err != nil {
+		return false, err
 	}
 	req.Header.Set("Content-Type", prepared.ContentType)
 	req.Header.Set("X-Title", prepared.Title)
-	client := &http.Client{Timeout: timeout}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	client := &http.Client{Timeout: attemptTimeout}
 	res, err := client.Do(req)
 	if err != nil {
-		return err
+		return true, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return fmt.Errorf("webhook returned %d", res.StatusCode)
+		return res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500,
+			fmt.Errorf("webhook returned %d", res.StatusCode)
 	}
-	return nil
+	return false, nil
 }

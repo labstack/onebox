@@ -606,6 +606,15 @@ var schemaConstraints = []struct {
 	{[]string{"registries", "*", "username"}, pattern(gRegistryUser)},
 	{[]string{"registries", "*", "password_env"}, pattern(gEnvName)},
 	{[]string{"notifications", "*", "format"}, enum(eNotifyFormat)},
+	{[]string{"notifications", "*", "signing_secret_env"}, pattern(gEnvName)},
+	// Format defaults to text, so a signed notification has to say JSON.
+	{[]string{"notifications", "*"}, map[string]any{
+		"if": map[string]any{"required": []any{"signing_secret_env"}},
+		"then": map[string]any{
+			"required":   []any{"format"},
+			"properties": map[string]any{"format": map[string]any{"const": "json"}},
+		},
+	}},
 	{[]string{"runtime", "env_files", "items", "file"}, pattern(gRepoPath)},
 	{[]string{"runtime", "env_files", "items", "provider"}, enum(eSecretProvider)},
 	{[]string{"runtime", "env_files", "items"}, map[string]any{"required": []any{"file"}}},

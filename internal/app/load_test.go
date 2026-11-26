@@ -316,6 +316,12 @@ spec:
 		// event is a webhook that reads as configured and never calls.
 		{"notification on an unknown event", min + "notifications: {ops: {webhook: \"https://h.example.com/x\", on: [deployed]}}\n", false},
 		{"notification with no events", min + "notifications: {ops: {webhook: \"https://h.example.com/x\"}}\n", true},
+		// A signed notification authenticates the JSON body a verifier reads;
+		// the secret itself is never in the file, only the variable naming it.
+		{"signed JSON notification", min + "notifications: {ops: {webhook: \"https://h.example.com/x\", format: json, signing_secret_env: OPS_WEBHOOK_SECRET}}\n", true},
+		{"signed notification with the default text format", min + "notifications: {ops: {webhook: \"https://h.example.com/x\", signing_secret_env: OPS_WEBHOOK_SECRET}}\n", false},
+		{"signed text notification", min + "notifications: {ops: {webhook: \"https://h.example.com/x\", format: text, signing_secret_env: OPS_WEBHOOK_SECRET}}\n", false},
+		{"signing secret env that is not a variable name", min + "notifications: {ops: {webhook: \"https://h.example.com/x\", format: json, signing_secret_env: \"whsec_abc=\"}}\n", false},
 		// logging lands verbatim in the generated runtime, so an unchecked value
 		// fails at container create on the server, after validate/preview/plan
 		// all reported the project fine.
@@ -1063,5 +1069,34 @@ spec:
 				t.Errorf("refused with %v, want unknown_field so the message names the key", err)
 			}
 		})
+	}
+}
+
+// The published key is signingSecretEnv, and a signed notification must say
+// format: JSON because the default text body is not what a verifier reads.
+func TestSignedNotificationProjectFile(t *testing.T) {
+	project := func(notification string) []byte {
+		return []byte(`apiVersion: onebox.run/v1alpha2
+kind: Application
+metadata:
+  name: shop
+spec:
+  environments: {production: {server: root@203.0.113.10}}
+  workloads:
+    web: {image: nginx}
+  notifications:
+    facet: ` + notification + `
+`)
+	}
+	spec, err := loadFixtureBytes(project(`{webhook: "https://facet.example.com/hooks/onebox", format: JSON, signingSecretEnv: FACET_WEBHOOK_SECRET}`), "ob.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := spec.Notifications["facet"].SigningSecretEnv; got != "FACET_WEBHOOK_SECRET" {
+		t.Fatalf("signingSecretEnv = %q", got)
+	}
+	_, err = loadFixtureBytes(project(`{webhook: "https://facet.example.com/hooks/onebox", signingSecretEnv: FACET_WEBHOOK_SECRET}`), "ob.yml")
+	if err == nil || !strings.Contains(err.Error(), "notifications.facet.format") || !strings.Contains(err.Error(), "format: JSON") {
+		t.Fatalf("error = %v, want a refusal at notifications.facet.format", err)
 	}
 }

@@ -275,10 +275,10 @@ func notifyOutcome(ctx context.Context, cfg *app.Resolved, g *globalFlags, verb,
 		// stable, redaction-safe outcome.
 		p.Status, p.Error = "fail", "operation failed; inspect trusted local diagnostics and journal evidence"
 	}
-	for _, name := range sortedNames(cfg.Notifications) {
-		if nerr := notify.Send(ctx, cfg.Notifications[name], p); nerr != nil {
-			fmt.Fprintf(os.Stderr, "warn: notify webhook %s: %v\n", name, nerr)
-		}
+	// Sent concurrently, so a verb waits for at most one send's bound however
+	// many webhooks are configured.
+	for _, failure := range notify.SendAll(ctx, cfg.Notifications, p) {
+		fmt.Fprintf(os.Stderr, "warn: notify webhook %s: %v\n", failure.Name, failure.Err)
 	}
 }
 
@@ -294,7 +294,9 @@ func notifyOperationOutcome(ctx context.Context, cfg *app.Resolved, g *globalFla
 		evidenceID = result.ReleaseID
 	}
 	// The operation context is cancelled by Ctrl-C and SIGTERM. Its outcome is
-	// still worth sending; notify.Send has its own bounded HTTP timeout.
+	// still worth sending; notify.SendAll bounds itself: one 5s attempt, or for
+	// a signed notification at most three attempts within notify.SignedBudget,
+	// with every webhook sent at once.
 	notifyOutcome(context.WithoutCancel(ctx), cfg, g, verb, evidenceID, err)
 }
 
@@ -569,16 +571,6 @@ func notificationConfig(g *globalFlags) (*app.Resolved, error) {
 		return nil, err
 	}
 	return spec.Resolve(g.Env)
-}
-
-// sortedNames orders map keys so repeated runs report in the same sequence.
-func sortedNames[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func renderDeployNoOp(u *ui.UI, currentRelease string) {

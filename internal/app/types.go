@@ -518,6 +518,9 @@ type Notification struct {
 	Webhook string   `json:"webhook" description:"HTTP endpoint that receives outcome notifications." example:"https://hooks.example.com/onebox"`
 	On      []string `json:"on,omitempty" description:"Operation outcomes that trigger this notification." default:"success, failure"`
 	Format  string   `json:"format" description:"Notification payload format." default:"text"`
+	// SigningSecretEnv names a variable in the operator's environment, never
+	// the secret itself, so the project file stays safe to commit.
+	SigningSecretEnv string `json:"signing_secret_env,omitempty" description:"Local environment-variable name containing a Standard Webhooks signing secret (whsec_ followed by base64). When set, each request carries webhook-id, webhook-timestamp and webhook-signature headers, and a send is retried at most three times within 15 seconds on a network error, 429 or 5xx. Requires format JSON. A missing or malformed secret is a warning, never a blocked operation: the command does not send that notification, and a scheduled job keeps signing with the keys its last deploy wrote. Notifications are sent concurrently, so several dead receivers still cost one 15-second bound." example:"ONEBOX_WEBHOOK_SECRET"`
 }
 
 type Registry struct {

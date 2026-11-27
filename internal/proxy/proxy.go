@@ -312,7 +312,12 @@ func foldKey(document map[string]any, key string) any {
 const managedDynamicConfigName = "onebox-managed.yml"
 const managedCompressionMiddleware = "onebox-compress"
 
-const defaultStaticConfigHeader = `# Written by Onebox because the project declared no custom static proxy configuration.
+// The static configuration is assembled from these parts so that the
+// forwarded-header trust for proxy.trusted_proxies can sit inside each
+// entrypoint. Without it the parts concatenate to exactly the bytes Onebox has
+// always written, which keeps the proxy identity, and so the running proxy,
+// unchanged for every project that does not declare it.
+const defaultStaticConfigPreamble = `# Written by Onebox because the project declared no custom static proxy configuration.
 # Add dynamic files through proxy.config, or include traefik.yml/traefik.yaml to own this file.
 ping: {}
 providers:
@@ -320,17 +325,29 @@ providers:
     directory: /etc/traefik/dynamic
     watch: true
 entryPoints:
-  web:
+`
+
+const webEntrypointAddress = `  web:
     address: ":80"
-    http:
+`
+
+const webEntrypointHTTP = `    http:
       redirections:
         entryPoint: {to: websecure, scheme: https}
-  websecure:
+`
+
+const websecureEntrypointAddress = `  websecure:
     address: ":443"
-    http:
+`
+
+const websecureEntrypointHTTP = `    http:
       middlewares:
         - ` + managedCompressionMiddleware + `@file
 `
+
+const defaultStaticConfigHeader = defaultStaticConfigPreamble +
+	webEntrypointAddress + webEntrypointHTTP +
+	websecureEntrypointAddress + websecureEntrypointHTTP
 
 const defaultStaticConfigFooter = `certificatesResolvers:
   ` + app.ManagedCertificateResolver + `:
@@ -365,14 +382,37 @@ func newProxyConfigHash() hash.Hash {
 }
 
 func renderStaticConfig(entrypoints map[string]app.ProxyEntrypoint) []byte {
-	return renderStaticConfigWithDNS(entrypoints, nil)
+	return renderManagedStaticConfig(entrypoints, nil, nil)
 }
 
 func renderStaticConfigWithDNS(entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge) []byte {
+	return renderManagedStaticConfig(entrypoints, dns, nil)
+}
+
+// renderManagedStaticConfig writes the static configuration Onebox owns. Each
+// rendered entrypoint, built in or declared, trusts the forwarded headers of
+// the same trustedProxies: a request reaches the backend through one
+// entrypoint, and which one should not decide whether its client address is
+// believed. trustedProxies arrives validated, sorted and deduplicated.
+func renderManagedStaticConfig(entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge, trustedProxies []string) []byte {
+	var forwarded strings.Builder
+	if len(trustedProxies) > 0 {
+		forwarded.WriteString("    forwardedHeaders:\n      trustedIPs:\n")
+		for _, prefix := range trustedProxies {
+			fmt.Fprintf(&forwarded, "        - %q\n", prefix)
+		}
+	}
 	var out strings.Builder
-	out.WriteString(defaultStaticConfigHeader)
+	out.WriteString(defaultStaticConfigPreamble)
+	out.WriteString(webEntrypointAddress)
+	out.WriteString(forwarded.String())
+	out.WriteString(webEntrypointHTTP)
+	out.WriteString(websecureEntrypointAddress)
+	out.WriteString(forwarded.String())
+	out.WriteString(websecureEntrypointHTTP)
 	for _, name := range sortedEntrypointNames(entrypoints) {
 		fmt.Fprintf(&out, "  %s:\n    address: \":%d\"\n", name, entrypoints[name].Port)
+		out.WriteString(forwarded.String())
 	}
 	out.WriteString(defaultStaticConfigFooter)
 	if dns != nil {
@@ -392,13 +432,15 @@ func Stage(localCfgDir, stagingDir, image, network string, entrypoints map[strin
 }
 
 func StageForApp(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireCertificateResolver bool) (Identity, error) {
-	return StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network, entrypoints, requireCertificateResolver, false, nil)
+	return StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network, entrypoints, requireCertificateResolver, false, nil, nil)
 }
 
 // StageForAppManaged stages a proxy with the managed ACME policy required by
 // the application's routes. Wildcard termination requires DNS-01 either from
-// dns or from a custom static configuration.
-func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireExactCertificateResolver, requireWildcardTLS bool, dns *app.ProxyDNSChallenge) (Identity, error) {
+// dns or from a custom static configuration. trustedProxies, when non-empty,
+// is rendered into every Onebox-written entrypoint and therefore requires the
+// static configuration to be Onebox's.
+func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, requireExactCertificateResolver, requireWildcardTLS bool, dns *app.ProxyDNSChallenge, trustedProxies []string) (Identity, error) {
 	if application == "" {
 		application = "onebox"
 	}
@@ -406,7 +448,7 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 		if requireWildcardTLS && dns == nil {
 			return Identity{}, errors.New("managed terminating wildcard routes require an ACME DNS challenge")
 		}
-		return stageDefaultManaged(stagingDir, image, discoveryImage, application, network, entrypoints, dns)
+		return stageDefaultManaged(stagingDir, image, discoveryImage, application, network, entrypoints, dns, trustedProxies)
 	}
 	entries, err := os.ReadDir(localCfgDir)
 	if err != nil {
@@ -450,6 +492,10 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 	if dns != nil && customStatic {
 		return Identity{}, errors.New("proxy.dns_challenge cannot be combined with project-owned traefik.yml or traefik.yaml; remove the static file so Onebox can render DNS-01")
 	}
+	if len(trustedProxies) > 0 && customStatic {
+		return Identity{}, errors.New("proxy.trustedProxies cannot be combined with project-owned traefik.yml or traefik.yaml; " +
+			"remove the static file so Onebox can render the entrypoints, or set entryPoints.<name>.forwardedHeaders.trustedIPs there and omit proxy.trustedProxies")
+	}
 	if requireWildcardTLS && !customStatic && dns == nil {
 		return Identity{}, errors.New("managed terminating wildcard routes require proxy.dns_challenge, or a project-owned traefik.yml or traefik.yaml defining ACME DNS-01")
 	}
@@ -467,7 +513,7 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 	}
 
 	staticName := "traefik.yml"
-	staticBody := renderStaticConfigWithDNS(entrypoints, dns)
+	staticBody := renderManagedStaticConfig(entrypoints, dns, trustedProxies)
 	if customStatic {
 		staticName = staticConfigs[0]
 		var err error
@@ -550,7 +596,7 @@ func StageForAppManaged(localCfgDir, stagingDir, image, discoveryImage, applicat
 
 // stageDefaultManaged writes the configuration Onebox owns, so a project that
 // declares a domain and nothing else can bootstrap.
-func stageDefaultManaged(stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge) (Identity, error) {
+func stageDefaultManaged(stagingDir, image, discoveryImage, application, network string, entrypoints map[string]app.ProxyEntrypoint, dns *app.ProxyDNSChallenge, trustedProxies []string) (Identity, error) {
 	cfgOut := filepath.Join(stagingDir, "config")
 	if err := os.MkdirAll(cfgOut, 0o755); err != nil {
 		return Identity{}, err
@@ -562,7 +608,7 @@ func stageDefaultManaged(stagingDir, image, discoveryImage, application, network
 	if err := os.MkdirAll(dynamicOut, 0o755); err != nil {
 		return Identity{}, err
 	}
-	body := renderStaticConfigWithDNS(entrypoints, dns)
+	body := renderManagedStaticConfig(entrypoints, dns, trustedProxies)
 	if err := os.WriteFile(filepath.Join(cfgOut, "traefik.yml"), body, 0o600); err != nil {
 		return Identity{}, err
 	}

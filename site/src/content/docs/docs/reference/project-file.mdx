@@ -358,6 +358,79 @@ is healthy, instead of receiving a header they do not expect. A backend that
 trusts the header should accept it only from the proxy's address on the
 `proxy.network` network.
 
+### Trusted proxies in front of the managed proxy
+
+The managed proxy treats the peer of each connection as the client. When a CDN
+or another reverse proxy sits in front of it, that peer is the front proxy, and
+Traefik overwrites the `X-Forwarded-For` the front proxy wrote with the front
+proxy's own address, so the backend never learns who the client was. List the
+front proxy's addresses under `proxy.trustedProxies` to keep its forwarded
+headers instead:
+
+```yaml
+proxy:
+  trustedProxies:
+    - 192.0.2.0/24
+    - 2001:db8:1200::/40
+```
+
+Onebox writes the list as `forwardedHeaders.trustedIPs` on every entrypoint in
+the static configuration it renders: `web`, `websecure`, and each one under
+`proxy.entrypoints`. A request from a listed peer reaches the backend with the
+`X-Forwarded-For` it arrived with, and Traefik appends the peer's address. A
+request from any other peer has the header replaced by that peer's address, as
+before.
+
+Each entry is a CIDR prefix in canonical form, IPv4 or IPv6. Write a single
+address as `/32` or `/128`; a bare address is refused. A prefix with host bits
+set, such as `10.20.0.5/24`, is refused with the canonical form to write
+instead, because Onebox cannot tell whether you meant the one address or the
+whole network. `0.0.0.0/0` and `::/0` are refused outright: trusting every peer
+lets any client write its own `X-Forwarded-For`. So is any IPv4 prefix shorter
+than `/8` or IPv6 prefix shorter than `/16`, which keeps a pair such as
+`0.0.0.0/1` and `128.0.0.0/1` from trusting everyone too; published CDN ranges
+are far narrower, so list them individually. Onebox sorts the list and
+drops duplicates, so the order you write it in does not change the
+configuration. `ob preview` prints the effective list.
+
+The field requires a Onebox-managed proxy. With `proxy.managed: false`, the
+operator-owned proxy sets this trust in its own configuration. It cannot be
+combined with a project-owned `traefik.yml` or `traefik.yaml` in
+`proxy.config`; set `entryPoints.<name>.forwardedHeaders.trustedIPs` there
+instead. Adding, changing, or removing the list changes the proxy's static
+configuration, so the next deploy plan shows `proxy: restart Traefik
+(configuration changed)`. A project that never declares it keeps the static
+configuration byte for byte.
+
+The list is only as safe as the front proxy is closed. Trust is decided by the
+peer address, so the host must accept connections on the proxy's ports only
+from the CDN or edge you listed, for example with a firewall that admits only
+its published ranges. If a client can reach the managed proxy directly from a
+listed range, or the front proxy forwards a client's `X-Forwarded-For` without
+replacing or appending to it correctly, that client can forge its address.
+
+Trust covers every forwarded header, not only `X-Forwarded-For`. A listed peer
+also decides `X-Forwarded-Proto` and `X-Forwarded-Host`, and Traefik acts on
+them itself: a trusted peer that sends `X-Forwarded-Proto: https` to the `web`
+entrypoint is treated as already secure, so the HTTP-to-HTTPS redirect does not
+happen. Make sure the front proxy sets these headers from the request it
+received rather than passing a client's values through. An application that
+builds URLs or checks hosts from `X-Forwarded-Host` gets whatever the front
+proxy put there.
+
+Applications must read the header correctly too:
+
+- Walk `X-Forwarded-For` from right to left. The rightmost entry was written
+  by the managed proxy and the ones before it by the proxies in front; take the
+  first address, from the right, that is not one of your own proxies. The
+  leftmost entry is whatever the client sent and proves nothing.
+- Include the front proxy's addresses, not only the managed proxy's address on
+  `proxy.network`, in the application's own list of trusted proxies. Most
+  frameworks call this a trusted proxy or real-IP setting.
+- Ignore `X-Real-Ip`. Traefik passes it through from a trusted peer without
+  modification, so it carries whatever the front proxy, or a client in front of
+  it, put there.
+
 :::caution[Compose is an output, not an input]
 A Compose file you wrote cannot be the contract: the declaration is, and Onebox
 generates the runtime from it. Individual services can still be adopted with

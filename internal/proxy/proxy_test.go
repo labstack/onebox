@@ -139,7 +139,7 @@ func TestManagedDNSChallengeRenderingAndStaging(t *testing.T) {
 
 	cfgDir := writeCfg(t, map[string]string{".env": "CF_DNS_API_TOKEN=placeholder\n"})
 	staging := t.TempDir()
-	if _, err := StageForAppManaged(cfgDir, staging, "", "", "sample", "", nil, true, true, dns); err != nil {
+	if _, err := StageForAppManaged(cfgDir, staging, "", "", "sample", "", nil, true, true, dns, nil); err != nil {
 		t.Fatal(err)
 	}
 	body, err := os.ReadFile(filepath.Join(staging, "config", "traefik.yml"))
@@ -160,20 +160,20 @@ func TestManagedDNSChallengeRenderingAndStaging(t *testing.T) {
 
 func TestManagedWildcardTLSRejectsIncompleteDNSConfiguration(t *testing.T) {
 	dns := &app.ProxyDNSChallenge{Provider: "cloudflare"}
-	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"}), t.TempDir(), "", "", "sample", "", nil, true, true, dns); err == nil || !strings.Contains(err.Error(), ".env") {
+	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"}), t.TempDir(), "", "", "sample", "", nil, true, true, dns, nil); err == nil || !strings.Contains(err.Error(), ".env") {
 		t.Fatalf("missing provider credentials must fail: %v", err)
 	}
-	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"}), t.TempDir(), "", "", "sample", "", nil, true, true, nil); err == nil || !strings.Contains(err.Error(), "proxy.dns_challenge") {
+	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"dynamic.yml": "http: {}\n"}), t.TempDir(), "", "", "sample", "", nil, true, true, nil, nil); err == nil || !strings.Contains(err.Error(), "proxy.dns_challenge") {
 		t.Fatalf("managed HTTP-01 must not claim wildcard support: %v", err)
 	}
 
 	httpOnly := writeCfg(t, map[string]string{"traefik.yml": testSocketlessStaticWithResolver})
-	if _, err := StageForAppManaged(httpOnly, t.TempDir(), "", "", "sample", "", nil, false, true, nil); err == nil || !strings.Contains(err.Error(), app.ManagedWildcardCertificateResolver) {
+	if _, err := StageForAppManaged(httpOnly, t.TempDir(), "", "", "sample", "", nil, false, true, nil, nil); err == nil || !strings.Contains(err.Error(), app.ManagedWildcardCertificateResolver) {
 		t.Fatalf("custom HTTP-01 resolver must not claim wildcard support: %v", err)
 	}
 
 	dnsStatic := testSocketlessStatic + "certificatesResolvers:\n  " + app.ManagedWildcardCertificateResolver + ":\n    acme:\n      storage: /letsencrypt/acme-wildcard.json\n      dnsChallenge:\n        provider: cloudflare\n"
-	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"traefik.yml": dnsStatic}), t.TempDir(), "", "", "sample", "", nil, false, true, nil); err != nil {
+	if _, err := StageForAppManaged(writeCfg(t, map[string]string{"traefik.yml": dnsStatic}), t.TempDir(), "", "", "sample", "", nil, false, true, nil, nil); err != nil {
 		t.Fatalf("custom DNS-01 resolver should remain supported: %v", err)
 	}
 }

@@ -78,10 +78,16 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 					}
 					services[name] = string(doc)
 				}
-				return writeFiniteSuccess(cmd, g, map[string]any{
+				envelope := map[string]any{
 					"environment": g.Env, "release": release, "digest": rendered.Digest,
 					"redacted": true, "runtime": string(body), "services": services,
-				})
+				}
+				// Present only when declared, so a project without it keeps
+				// the envelope it always had.
+				if len(p.Proxy.TrustedProxies) > 0 {
+					envelope["proxy"] = map[string]any{"trustedProxies": p.Proxy.TrustedProxies}
+				}
+				return writeFiniteSuccess(cmd, g, envelope)
 			}
 
 			if digestOnly {
@@ -99,6 +105,15 @@ func addPreviewCommand(root *cobra.Command, g *globalFlags) {
 			fmt.Fprintf(out, "# environment %s, release %s\n", g.Env, release)
 			if !showRaw {
 				fmt.Fprintln(out, "# environment values redacted; --raw shows them")
+			}
+			// The runtime below is the release; forwarded-header trust lives in
+			// the managed proxy's static configuration, which no release
+			// carries. Without this line the one setting that decides whether
+			// a client address is believed would be invisible here. It prints
+			// the effective list: validated, sorted and deduplicated.
+			if len(p.Proxy.TrustedProxies) > 0 {
+				fmt.Fprintf(out, "# proxy trustedProxies %s: every managed entrypoint keeps X-Forwarded-For from these peers\n",
+					strings.Join(p.Proxy.TrustedProxies, ", "))
 			}
 			if _, err := out.Write(body); err != nil {
 				return err

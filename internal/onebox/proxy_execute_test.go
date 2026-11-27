@@ -56,7 +56,7 @@ func testExecuteSealedProxyAction(t *testing.T, matching bool) {
 			staging := t.TempDir()
 			spec := lp.resolved
 			id, err := proxy.StageForAppManaged("", staging, spec.Proxy.Image, proxy.DiscoveryImage(svc.runner.Version),
-				spec.Name, spec.Proxy.Network, spec.Proxy.Entrypoints, spec.HasExactTerminatingTLS(), spec.HasWildcardTerminatingTLS(), spec.Proxy.DNSChallenge)
+				spec.Name, spec.Proxy.Network, spec.Proxy.Entrypoints, spec.HasExactTerminatingTLS(), spec.HasWildcardTerminatingTLS(), spec.Proxy.DNSChallenge, spec.Proxy.TrustedProxies)
 			if err != nil {
 				t.Fatal(err)
 			}

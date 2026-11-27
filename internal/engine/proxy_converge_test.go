@@ -977,3 +977,53 @@ func TestPlanProxyReportsEachAction(t *testing.T) {
 		})
 	}
 }
+
+// Adding proxy.trustedProxies to a project whose proxy is already running is a
+// configuration change and nothing more: the plan names the restart, and an
+// unchanged list (here, none on either side) plans nothing.
+func TestPlanProxyRestartsTraefikWhenTrustedProxiesChange(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		trusted []string
+		want    string
+	}{
+		{"absent before and after", nil, "unchanged"},
+		{"declared", []string{"192.0.2.0/24"}, "restart Traefik (configuration changed)"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &transport.Fake{}
+			e, _, _ := proxyFixture(t, f)
+			e.Spec.Proxy.Config = ""
+			applied, err := e.stageProxy(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			live := string(testProxyCompose(t, e))
+			e.Spec.Proxy.TrustedProxies = tt.trusted
+			f.Dynamic = func(cmd string) (transport.Result, bool) {
+				switch {
+				case strings.Contains(cmd, "{{.Image}}") || strings.Contains(cmd, "{{.Id}}"):
+					return transport.Result{Stdout: "sha256:proxy"}, true
+				case cmd == "cat '/var/lib/onebox/_host/proxy/compose.yaml'":
+					return transport.Result{Stdout: live}, true
+				case strings.HasPrefix(cmd, "cat "):
+					return transport.Result{Stdout: applied.String() + "\n"}, true
+				case strings.Contains(cmd, "service=proxy"):
+					return transport.Result{Stdout: "PX1\n"}, true
+				case strings.Contains(cmd, "service=discovery"):
+					return transport.Result{Stdout: "D1\n"}, true
+				case strings.Contains(cmd, "stat -c %i"):
+					return transport.Result{Stdout: "12\n"}, true
+				}
+				return transport.Result{}, false
+			}
+			got, err := e.PlanProxy(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Fatalf("PlanProxy = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

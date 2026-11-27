@@ -28,6 +28,11 @@ func TestTrustedProxiesValidation(t *testing.T) {
 		{"bare ipv6", `["2001:db8::7"]`, "write 2001:db8::7/128", "spec.proxy.trustedProxies[0]", nil},
 		{"ipv4 everything", `["0.0.0.0/0"]`, "trust every peer", "spec.proxy.trustedProxies[0]", nil},
 		{"ipv6 everything", `["::/0"]`, "trust every peer", "spec.proxy.trustedProxies[0]", nil},
+		{"ipv4 halves", `["0.0.0.0/1", "128.0.0.0/1"]`, "at least /8", "spec.proxy.trustedProxies[0]", nil},
+		{"ipv4 shorter than /8", `["10.0.0.0/8", "192.0.0.0/7"]`, "at least /8", "spec.proxy.trustedProxies[1]", nil},
+		{"ipv6 half", `["::/1"]`, "at least /16", "spec.proxy.trustedProxies[0]", nil},
+		{"ipv6 shorter than /16", `["2000::/3"]`, "at least /16", "spec.proxy.trustedProxies[0]", nil},
+		{"ipv4 /8 and ipv6 /16", `["10.0.0.0/8", "2001::/16"]`, "", "", []string{"10.0.0.0/8", "2001::/16"}},
 		{"ipv4-mapped ipv6", `["::ffff:0.0.0.0/96"]`, "IPv4-mapped", "spec.proxy.trustedProxies[0]", nil},
 		{"not a prefix", `["cdn.example.com"]`, "not a CIDR prefix", "spec.proxy.trustedProxies[0]", nil},
 		{"zone", `["fe80::%eth0/64"]`, "not a CIDR prefix", "spec.proxy.trustedProxies[0]", nil},
@@ -55,14 +60,17 @@ func TestTrustedProxiesRequireManagedProxy(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		body string
+		want string
 	}{
-		{"unmanaged", min + "proxy: {managed: false, trusted_proxies: [192.0.2.0/24]}\n"},
-		{"no routes, so no managed proxy", base + "workloads: {worker: {image: app:1}}\nproxy: {trusted_proxies: [192.0.2.0/24]}\n"},
+		{"unmanaged", min + "proxy: {managed: false, trusted_proxies: [192.0.2.0/24]}\n", "an operator-owned proxy"},
+		{"no routes, so no managed proxy", base + "workloads: {worker: {image: app:1}}\nproxy: {trusted_proxies: [192.0.2.0/24]}\n", "no workload declares a route"},
+		{"routing disabled", base + "workloads: {worker: {image: app:1}}\nproxy: {kind: none, trusted_proxies: [192.0.2.0/24]}\n", "proxy.kind is \"none\""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := loadFixtureBytes([]byte(tc.body), "ob.yml")
 			var projectErr *Error
-			if !errors.As(err, &projectErr) || projectErr.Path != "spec.proxy.trustedProxies" || !strings.Contains(projectErr.Message, "requires a Onebox-managed proxy") {
+			if !errors.As(err, &projectErr) || projectErr.Path != "spec.proxy.trustedProxies" ||
+				!strings.Contains(projectErr.Message, "requires a Onebox-managed proxy") || !strings.Contains(projectErr.Message, tc.want) {
 				t.Fatalf("error = %v", err)
 			}
 		})

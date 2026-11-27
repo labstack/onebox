@@ -723,6 +723,11 @@ func normaliseTrustedProxies(entries []string) ([]string, error) {
 			return nil, errf("project_invalid", at, "",
 				"%q would trust every peer, so any client could forge X-Forwarded-For; list only the addresses of the proxies in front of this one", entry)
 		}
+		if minimum := minTrustedPrefixBits(prefix); prefix.Bits() < minimum {
+			return nil, errf("project_invalid", at, "",
+				"%q trusts too much of the address space; trusted proxy prefixes must be at least /%d, "+
+					"and published CDN ranges are far narrower, so list them individually", entry, minimum)
+		}
 		if canonical := prefix.Masked().String(); canonical != entry {
 			return nil, errf("project_invalid", at, "",
 				"%q is not a canonical prefix; write %s", entry, canonical)
@@ -741,6 +746,17 @@ func normaliseTrustedProxies(entries []string) ([]string, error) {
 		out[i] = prefix.String()
 	}
 	return out, nil
+}
+
+// minTrustedPrefixBits is the shortest prefix proxy.trusted_proxies accepts.
+// No CDN or edge publishes ranges anywhere near this wide, so a shorter
+// prefix is a typo or an attempt to trust everyone in a few entries, such as
+// 0.0.0.0/1 and 128.0.0.0/1, which refusing /0 alone would let through.
+func minTrustedPrefixBits(prefix netip.Prefix) int {
+	if prefix.Addr().Is4() {
+		return 8
+	}
+	return 16
 }
 
 func indexed(path string, i int) string {

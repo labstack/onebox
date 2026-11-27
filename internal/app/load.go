@@ -528,9 +528,20 @@ func crossFieldRules(p *Spec) error {
 		return errf("project_invalid", "proxy.dns_challenge", "", "dns_challenge requires a Onebox-managed proxy")
 	}
 	if len(p.Proxy.TrustedProxies) > 0 && (!p.Proxy.Managed || p.Proxy.Kind == "none") {
-		return errf("project_invalid", "proxy.trusted_proxies", "",
-			"trustedProxies requires a Onebox-managed proxy, which renders the entrypoints that trust them; "+
-				"an operator-owned proxy sets forwarded-header trust in its own configuration")
+		switch {
+		case p.Proxy.Kind == "none":
+			return errf("project_invalid", "proxy.trusted_proxies", "",
+				"trustedProxies requires a Onebox-managed proxy, but proxy.kind is \"none\", so no proxy runs; "+
+					"remove trustedProxies, or name the proxy that serves the routes")
+		case !p.routesAnywhere():
+			return errf("project_invalid", "proxy.trusted_proxies", "",
+				"trustedProxies requires a Onebox-managed proxy, but no workload declares a route, so Onebox runs none; "+
+					"declare a route, set proxy.managed to true, or remove trustedProxies")
+		default:
+			return errf("project_invalid", "proxy.trusted_proxies", "",
+				"trustedProxies requires a Onebox-managed proxy, which renders the entrypoints that trust them; "+
+					"an operator-owned proxy sets forwarded-header trust in its own configuration")
+		}
 	}
 	if p.Proxy.Managed && p.HasWildcardTerminatingTLS() && p.Proxy.DNSChallenge == nil && p.Proxy.Config == "" {
 		return errf("project_invalid", "proxy.dns_challenge", "",

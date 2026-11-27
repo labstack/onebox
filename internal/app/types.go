@@ -549,7 +549,7 @@ type Proxy struct {
 	// TrustedProxies is kept sorted and free of duplicates by validation, so
 	// the rendered static configuration and the proxy identity depend on the
 	// set of prefixes, not on how the author ordered them.
-	TrustedProxies []string `json:"trusted_proxies,omitempty" description:"CIDR prefixes of the reverse proxies or CDN in front of the managed proxy. Requests whose peer address falls in one of them keep their X-Forwarded-For and related forwarded headers instead of having the managed proxy overwrite them. Applies to every entrypoint in Onebox's generated static configuration. Each entry is a canonical IPv4 or IPv6 prefix such as 192.0.2.0/24; a bare address, a prefix with host bits set, and 0.0.0.0/0 or ::/0 are refused. Requires a Onebox-managed proxy and cannot be combined with a project-owned traefik.yml or traefik.yaml." example:"192.0.2.0/24"`
+	TrustedProxies []string `json:"trusted_proxies,omitempty" description:"CIDR prefixes of the reverse proxies or CDN in front of the managed proxy. Requests whose peer address falls in one of them keep their X-Forwarded-For and related forwarded headers instead of having the managed proxy overwrite them. Applies to every entrypoint in Onebox's generated static configuration. Each entry is a canonical IPv4 or IPv6 prefix such as 192.0.2.0/24; a bare address, a prefix with host bits set, and an IPv4 prefix shorter than /8 or an IPv6 prefix shorter than /16 are refused. Trusted peers also control X-Forwarded-Proto and X-Forwarded-Host. Requires a Onebox-managed proxy and cannot be combined with a project-owned traefik.yml or traefik.yaml." example:"192.0.2.0/24"`
 }
 
 type ProxyEntrypoint struct {

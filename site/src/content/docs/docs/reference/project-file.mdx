@@ -386,7 +386,10 @@ address as `/32` or `/128`; a bare address is refused. A prefix with host bits
 set, such as `10.20.0.5/24`, is refused with the canonical form to write
 instead, because Onebox cannot tell whether you meant the one address or the
 whole network. `0.0.0.0/0` and `::/0` are refused outright: trusting every peer
-lets any client write its own `X-Forwarded-For`. Onebox sorts the list and
+lets any client write its own `X-Forwarded-For`. So is any IPv4 prefix shorter
+than `/8` or IPv6 prefix shorter than `/16`, which keeps a pair such as
+`0.0.0.0/1` and `128.0.0.0/1` from trusting everyone too; published CDN ranges
+are far narrower, so list them individually. Onebox sorts the list and
 drops duplicates, so the order you write it in does not change the
 configuration. `ob preview` prints the effective list.
 
@@ -405,6 +408,15 @@ from the CDN or edge you listed, for example with a firewall that admits only
 its published ranges. If a client can reach the managed proxy directly from a
 listed range, or the front proxy forwards a client's `X-Forwarded-For` without
 replacing or appending to it correctly, that client can forge its address.
+
+Trust covers every forwarded header, not only `X-Forwarded-For`. A listed peer
+also decides `X-Forwarded-Proto` and `X-Forwarded-Host`, and Traefik acts on
+them itself: a trusted peer that sends `X-Forwarded-Proto: https` to the `web`
+entrypoint is treated as already secure, so the HTTP-to-HTTPS redirect does not
+happen. Make sure the front proxy sets these headers from the request it
+received rather than passing a client's values through. An application that
+builds URLs or checks hosts from `X-Forwarded-Host` gets whatever the front
+proxy put there.
 
 Applications must read the header correctly too:
 

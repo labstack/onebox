@@ -276,6 +276,9 @@ Ports `80` and `443` belong to `web` and `websecure`, and port `8080` is
 reserved too: the managed Traefik serves its ping health check from its
 internal `traefik` entrypoint there, so a declared listener on `8080` could
 never bind.
+The name `traefik` is reserved for the same reason: declaring it would
+redefine that internal entrypoint and publish the health check on the declared
+port.
 
 When Onebox writes the static proxy configuration, including when
 `proxy.config` contains only dynamic extensions, it also writes these named

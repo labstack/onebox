@@ -67,7 +67,7 @@ func (e *Engine) stageProxy(dir string) (proxy.Identity, error) {
 	discoveryImage := proxy.DiscoveryImage(e.Opts.Runner.Version)
 	return proxy.StageForAppManaged(localCfg, dir, e.Spec.Proxy.Image, discoveryImage,
 		e.Spec.Name, e.Spec.Proxy.Network, e.Spec.Proxy.Entrypoints, e.Spec.HasExactTerminatingTLS(),
-		e.Spec.HasWildcardTerminatingTLS(), e.Spec.Proxy.DNSChallenge)
+		e.Spec.HasWildcardTerminatingTLS(), e.Spec.Proxy.DNSChallenge, e.Spec.Proxy.TrustedProxies)
 }
 
 func traefikDefinitionChanged(live, rendered []byte) bool {

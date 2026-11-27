@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -97,6 +99,11 @@ func validateTopLevel(p *Spec) error {
 			}
 		}
 	}
+	trusted, err := normaliseTrustedProxies(p.Proxy.TrustedProxies)
+	if err != nil {
+		return err
+	}
+	p.Proxy.TrustedProxies = trusted
 	seenEntrypointPorts := map[int]string{80: "web", 443: "websecure"}
 	for _, name := range sortedKeys(p.Proxy.Entrypoints) {
 		path := "proxy.entrypoints." + name
@@ -680,6 +687,60 @@ func validateScheduleFields(cron, timezone, path string) error {
 		return errf("project_invalid", path+".cron", "", "%q must contain exactly five cron fields", cron)
 	}
 	return gTZ.checkOptional(path+".timezone", timezone)
+}
+
+// normaliseTrustedProxies checks each proxy.trusted_proxies entry and returns
+// the set sorted and without duplicates, or nil when it is empty, so an absent
+// list and an empty one render the same static configuration.
+//
+// Every entry must be written exactly as the prefix it denotes. A prefix with
+// host bits set, such as 10.20.0.5/24, is refused rather than masked: the
+// author may have meant the single address, and silently trusting the whole
+// /24 is the wrong way to guess. An IPv4-mapped IPv6 prefix is refused because
+// ::ffff:0:0/96 matches every IPv4 peer in Go's net package, the comparison
+// Traefik uses; write the IPv4 prefix instead.
+func normaliseTrustedProxies(entries []string) ([]string, error) {
+	const path = "proxy.trusted_proxies"
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	prefixes := make([]netip.Prefix, 0, len(entries))
+	for i, entry := range entries {
+		at := indexed(path, i)
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			if addr, addrErr := netip.ParseAddr(entry); addrErr == nil && addr.Zone() == "" {
+				return nil, errf("project_invalid", at, "",
+					"%q is an address, not a CIDR prefix; write %s to trust that one address", entry, netip.PrefixFrom(addr, addr.BitLen()))
+			}
+			return nil, errf("project_invalid", at, "", "%q is not a CIDR prefix such as 192.0.2.0/24 or 2001:db8::/32", entry)
+		}
+		if prefix.Addr().Is4In6() {
+			return nil, errf("project_invalid", at, "",
+				"%q is an IPv4-mapped IPv6 prefix; write the IPv4 prefix it denotes instead", entry)
+		}
+		if prefix.Bits() == 0 {
+			return nil, errf("project_invalid", at, "",
+				"%q would trust every peer, so any client could forge X-Forwarded-For; list only the addresses of the proxies in front of this one", entry)
+		}
+		if canonical := prefix.Masked().String(); canonical != entry {
+			return nil, errf("project_invalid", at, "",
+				"%q is not a canonical prefix; write %s", entry, canonical)
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	slices.SortFunc(prefixes, func(a, b netip.Prefix) int {
+		if c := a.Addr().Compare(b.Addr()); c != 0 {
+			return c
+		}
+		return a.Bits() - b.Bits()
+	})
+	prefixes = slices.Compact(prefixes)
+	out := make([]string, len(prefixes))
+	for i, prefix := range prefixes {
+		out[i] = prefix.String()
+	}
+	return out, nil
 }
 
 func indexed(path string, i int) string {

@@ -17,7 +17,7 @@ cannot drift from what `ob validate` accepts.
 
 ## Fields on this page
 
-`config` · `dnsChallenge` · `entrypoints` · `image` · `kind` · `managed` · `network` · `port` · `provider` · `resolvers`
+`config` · `dnsChallenge` · `entrypoints` · `image` · `kind` · `managed` · `network` · `port` · `provider` · `resolvers` · `trustedProxies`
 
 ## Reference
 
@@ -33,5 +33,6 @@ cannot drift from what `ob validate` accepts.
 | `kind` | `TraefikDocker` · `None` | `TraefikDocker` | Proxy implementation, or none to disable routing. |
 | `managed` | boolean | — | Let Onebox converge the host-scoped proxy when routes are declared. |
 | `network` | string | `onebox-ingress` | External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved. |
+| `trustedProxies` | list | — | CIDR prefixes of the reverse proxies or CDN in front of the managed proxy. Requests whose peer address falls in one of them keep their X-Forwarded-For and related forwarded headers instead of having the managed proxy overwrite them. Applies to every entrypoint in Onebox's generated static configuration. Each entry is a canonical IPv4 or IPv6 prefix such as 192.0.2.0/24; a bare address, a prefix with host bits set, and 0.0.0.0/0 or ::/0 are refused. Requires a Onebox-managed proxy and cannot be combined with a project-owned traefik.yml or traefik.yaml. |
 
 `*` marks a field that is required within its own object.

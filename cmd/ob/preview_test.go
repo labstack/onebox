@@ -161,3 +161,36 @@ spec:
 		t.Error("the referenced file must be left alone")
 	}
 }
+
+// Forwarded-header trust lives in the proxy's static configuration, which no
+// release carries, so preview names the effective list itself: validated,
+// sorted and deduplicated. A project without it previews exactly as before.
+func TestPreviewShowsTrustedProxies(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "ob.yml", previewProject)
+	without, err := run(t, dir, "preview")
+	if err != nil {
+		t.Fatalf("preview failed: %v\n%s", err, without)
+	}
+	if strings.Contains(without, "trustedProxies") {
+		t.Fatalf("preview without the field mentions it:\n%s", without)
+	}
+
+	writeFile(t, dir, "ob.yml", previewProject+"  proxy:\n    trustedProxies: [2001:db8::/32, 192.0.2.0/24, 192.0.2.0/24]\n")
+	out, err := run(t, dir, "preview")
+	if err != nil {
+		t.Fatalf("preview failed: %v\n%s", err, out)
+	}
+	want := "# proxy trustedProxies 192.0.2.0/24, 2001:db8::/32: every managed entrypoint keeps X-Forwarded-For from these peers\n"
+	if !strings.Contains(out, want) {
+		t.Fatalf("preview does not show the effective trusted list %q:\n%s", want, out)
+	}
+
+	structured, err := run(t, dir, "preview", "--output", "json")
+	if err != nil {
+		t.Fatalf("preview --output json failed: %v\n%s", err, structured)
+	}
+	if !strings.Contains(strings.Join(strings.Fields(structured), ""), `"proxy":{"trustedProxies":["192.0.2.0/24","2001:db8::/32"]}`) {
+		t.Fatalf("structured preview does not carry the trusted list:\n%s", structured)
+	}
+}

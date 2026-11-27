@@ -546,6 +546,10 @@ type Proxy struct {
 	Network      string                     `json:"network" description:"External container network shared with routed workloads; default and Onebox's derived application and service network names are reserved." default:"onebox-ingress"`
 	Entrypoints  map[string]ProxyEntrypoint `json:"entrypoints,omitempty" description:"Additional named TCP listeners published by the managed proxy. Onebox adds them to its generated static configuration; a proxy.config containing custom traefik.yml or traefik.yaml must define matching Traefik entrypoints."`
 	DNSChallenge *ProxyDNSChallenge         `json:"dns_challenge,omitempty" description:"Managed ACME DNS-01 challenge used to issue wildcard certificates. Provider credentials belong in proxy.config/.env; Onebox continues to own the static proxy configuration."`
+	// TrustedProxies is kept sorted and free of duplicates by validation, so
+	// the rendered static configuration and the proxy identity depend on the
+	// set of prefixes, not on how the author ordered them.
+	TrustedProxies []string `json:"trusted_proxies,omitempty" description:"CIDR prefixes of the reverse proxies or CDN in front of the managed proxy. Requests whose peer address falls in one of them keep their X-Forwarded-For and related forwarded headers instead of having the managed proxy overwrite them. Applies to every entrypoint in Onebox's generated static configuration. Each entry is a canonical IPv4 or IPv6 prefix such as 192.0.2.0/24; a bare address, a prefix with host bits set, and 0.0.0.0/0 or ::/0 are refused. Requires a Onebox-managed proxy and cannot be combined with a project-owned traefik.yml or traefik.yaml." example:"192.0.2.0/24"`
 }
 
 type ProxyEntrypoint struct {

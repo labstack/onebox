@@ -74,6 +74,11 @@ func validateSpec(p *Spec) error {
 	return validateTopLevel(p)
 }
 
+// traefikInternalPort is where Traefik opens its internal "traefik"
+// entrypoint when ping, the API or metrics are enabled without an explicit
+// entryPoint, as Onebox's static configuration does for ping.
+const traefikInternalPort = 8080
+
 func validateTopLevel(p *Spec) error {
 	if err := checkEnum("proxy.kind", p.Proxy.Kind, eProxyKind); err != nil {
 		return err
@@ -110,6 +115,15 @@ func validateTopLevel(p *Spec) error {
 		port := p.Proxy.Entrypoints[name].Port
 		if err := checkPort(path+".port", port); err != nil {
 			return err
+		}
+		// Onebox's static configuration enables ping without naming an
+		// entrypoint, so Traefik serves it from its internal "traefik"
+		// entrypoint on :8080. A declared listener there cannot bind, and the
+		// proxy fails to start on the host rather than here.
+		if port == traefikInternalPort {
+			return errf("project_invalid", path+".port", "",
+				"proxy entrypoint %q cannot publish port %d: the managed Traefik already listens there for its ping health check (its internal \"traefik\" entrypoint); choose another port",
+				name, port)
 		}
 		if previous, exists := seenEntrypointPorts[port]; exists {
 			return errf("project_invalid", path+".port", "",

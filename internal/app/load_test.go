@@ -58,6 +58,8 @@ func TestProxyEntrypointsValidateNamesAndPorts(t *testing.T) {
 		{"built-in port", "proxy: {entrypoints: {otlp: {port: 443}}}\n", "websecure"},
 		{"duplicate port", "proxy: {entrypoints: {otlp-grpc: {port: 4317}, otlp-http: {port: 4317}}}\n", "both publish port 4317"},
 		{"invalid port", "proxy: {entrypoints: {otlp: {port: 70000}}}\n", "proxy.entrypoints.otlp.port"},
+		{"traefik ping port", "proxy: {entrypoints: {admin: {port: 8080}}}\n", "ping health check"},
+		{"neighbour of ping port", "proxy: {entrypoints: {admin: {port: 8081}}}\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := loadFixtureBytes([]byte(min+tc.yaml), "ob.yml")

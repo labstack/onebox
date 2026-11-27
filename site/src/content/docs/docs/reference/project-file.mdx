@@ -272,6 +272,10 @@ Each declared port is published on the host by the managed proxy. Use this for
 remote clients; workloads on the same host can communicate over Onebox's
 internal networks without opening another host port. The route's `port` is the
 workload's listening port, while `entrypoint` selects the proxy listener.
+Ports `80` and `443` belong to `web` and `websecure`, and port `8080` is
+reserved too: the managed Traefik serves its ping health check from its
+internal `traefik` entrypoint there, so a declared listener on `8080` could
+never bind.
 
 When Onebox writes the static proxy configuration, including when
 `proxy.config` contains only dynamic extensions, it also writes these named
